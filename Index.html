@@ -392,39 +392,50 @@ async function loadAnnonces(){
   const sb=getSupabase();
   if(!sb) return;
   try{
-    const {data,error}=await sb.from("annonces").select("*").order("created_at",{ascending:false}).limit(50);
+    const {data,error}=await sb.from("annonces").select("*").order("created_at",{ascending:false}).limit(100);
     if(error||!data||data.length===0) return;
-    // Fusionne avec les annonces locales (les annonces Supabase en premier)
     const supaIds=new Set(data.map(a=>String(a.id)));
     const localOnly=DOSSARDS.filter(d=>!supaIds.has(String(d.id)));
-    DOSSARDS=[...data.map(a=>({
-      id:a.id,titre:a.titre,lieu:a.lieu,date:a.date,
-      prix:a.prix,type:a.type,dist:a.dist||"–",deniv:a.deniv||"–",
-      img:a.img||IMGS.utmb,vendeur:a.vendeur,desc:a.desc||"",
-      places:1,note:a.note||"Nouveau",
-      _photos:a.photos||[],_shipping:a.shipping||null,
-      category:a.category||"",etat:a.etat||""
-    })),...localOnly];
+    DOSSARDS=[...data.map(a=>{
+      const photos=a.photos||[];
+      const firstImg=photos.find(p=>typeof p==="string"&&p.startsWith("data:image"))||IMGS.utmb;
+      return {
+        id:a.id,titre:a.titre,lieu:a.lieu||"France",
+        date:a.date_course||a.date||"",
+        prix:Number(a.prix)||0,type:a.type,
+        dist:a.dist||"–",deniv:a.deniv||"–",
+        img:firstImg,vendeur:a.vendeur||"Traivo",
+        desc:a.description||"",places:1,note:"Nouveau",
+        _photos:photos,_shipping:a.shipping||null,
+        category:a.category||"",etat:a.etat||""
+      };
+    }),...localOnly];
     render();
   }catch(e){console.warn("loadAnnonces error:",e);}
 }
 
-// ── Sauvegarde une annonce dans Supabase ──────────────────────────────────
 async function saveAnnonce(annonce){
   const sb=getSupabase();
-  if(!sb) return;
+  if(!sb) return null;
   try{
-    await sb.from("annonces").insert({
-      titre:annonce.titre,lieu:annonce.lieu,date:annonce.date,
-      prix:annonce.prix,type:annonce.type,dist:annonce.dist,deniv:annonce.deniv,
-      img:annonce.img,vendeur:annonce.vendeur,desc:annonce.desc,
-      note:annonce.note,photos:annonce._photos||[],
+    const session=await sb.auth.getSession();
+    const userId=session?.data?.session?.user?.id||state.user._supaId||null;
+    if(!userId){console.warn("saveAnnonce: pas de user_id");return null;}
+    const {data,error}=await sb.from("annonces").insert({
+      user_id:userId,
+      titre:annonce.titre,lieu:annonce.lieu,
+      date_course:annonce.date,
+      prix:Number(annonce.prix)||0,
+      type:annonce.type,dist:annonce.dist,deniv:annonce.deniv,
+      vendeur:annonce.vendeur,description:annonce.desc,
+      photos:annonce._photos||[],
       shipping:annonce._shipping||null,
-      category:annonce.category||null,etat:annonce.etat||null,
-      user_id:state.user._supaId||null,
-      created_at:new Date().toISOString()
-    });
-  }catch(e){console.warn("saveAnnonce error:",e);}
+      category:annonce.category||null,
+      etat:annonce.etat||null
+    }).select().single();
+    if(error){console.warn("saveAnnonce error:",error.message);return null;}
+    return data;
+  }catch(e){console.warn("saveAnnonce error:",e);return null;}
 }
 
 // ── COUCHE 3 : ÉCRAN D'ACCUEIL ──────────────────────────────────────
