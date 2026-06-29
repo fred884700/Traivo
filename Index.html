@@ -1,0 +1,2438 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover"/>
+<meta name="theme-color" content="#060A0F"/>
+<title>TRAIVO · Le lien entre les coureurs</title>
+<style>
+/* Police système en attendant le chargement optionnel de Poppins */
+@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800;900&display=swap');
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+html,body{height:100%;width:100%;overflow:hidden;background:#000;font-family:'Poppins',sans-serif;color:#F5F5F2}
+::-webkit-scrollbar{display:none}
+*{scrollbar-width:none}
+@keyframes fadeUp{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
+.fade{animation:fadeUp 0.25s ease forwards}
+button,input,select,textarea{font-family:'Poppins',sans-serif;color:#fff}
+input::placeholder,textarea::placeholder{color:#555E68}
+select option { background: #12161A; color: #fff; }
+</style>
+</head>
+<body>
+<div id="app" style="height:100%; width:100%;"></div>
+<script>
+// ── CONFIGURATION DESIGN SYSTÈME ──────────────────────────────────
+const C={bg:"#060A0F",card:"#12161A",alt:"#1A1F26",orange:"#FF5500",green:"#10B981",muted:"#7A8694",border:"#222933",white:"#FFFFFF"};
+
+// ── SUPABASE — chargement asynchrone non-bloquant ─────────────────────────
+const SUPA_URL="https://mekfxrfcihxgptpshwwf.supabase.co";
+const SUPA_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1la2Z4cmZjaWh4Z3B0cHNod3dmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODEyMjM2MTQsImV4cCI6MjA5Njc5OTYxNH0.zHEilOlTFBAGyE82Ara8RCipUii_5ovVgcuRmZO_qMI";
+let supabase=null;
+let _supaLoadPromise=null;
+
+function loadSupabase(){
+  if(_supaLoadPromise) return _supaLoadPromise;
+  _supaLoadPromise=new Promise((resolve)=>{
+    try{
+      // Si déjà chargé
+      if(window.supabase&&window.supabase.createClient){
+        try{supabase=window.supabase.createClient(SUPA_URL,SUPA_KEY);resolve(supabase);}
+        catch(e){resolve(null);}
+        return;
+      }
+      // Ne pas injecter de script si on est dans un iframe sandboxé (artifact Claude)
+      // On le détecte via l'absence de vraie URL (blob: ou about:)
+      const loc=window.location.href;
+      const isSandboxed=loc.startsWith('blob:')||loc.startsWith('about:')||loc===''||
+                         window.top!==window; // dans un iframe
+      if(isSandboxed){
+        console.log("Environnement sandboxé détecté — Supabase désactivé, mode hors-ligne");
+        resolve(null);return;
+      }
+
+      const s=document.createElement("script");
+      s.src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js";
+      s.async=true;
+      s.onload=()=>{
+        try{
+          if(window.supabase&&window.supabase.createClient){
+            supabase=window.supabase.createClient(SUPA_URL,SUPA_KEY);
+            resolve(supabase);
+          }else{resolve(null);}
+        }catch(e){resolve(null);}
+      };
+      s.onerror=()=>resolve(null);
+      document.head.appendChild(s);
+      setTimeout(()=>resolve(supabase||null),6000);
+    }catch(e){resolve(null);}
+  });
+  return _supaLoadPromise;
+}
+
+function getSupabase(){return supabase;}
+
+// ── BANQUE D'IMAGES ─────────────────────────────
+const IMGS={
+  utmb:"https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?auto=format&fit=crop&w=300&q=80",
+  saintelyon:"https://images.unsplash.com/photo-1506744038136-46273834b3fb?auto=format&fit=crop&w=300&q=80",
+  paris:"https://images.unsplash.com/photo-1502602898657-3e91760cbb34?auto=format&fit=crop&w=300&q=80",
+  reunion:"https://images.unsplash.com/photo-1613049071011-897b5e40e34c?auto=format&fit=crop&w=300&q=80",
+  runner:"https://images.unsplash.com/photo-1502224562085-639556652f33?auto=format&fit=crop&w=150&q=80"
+};
+
+// ── BASE DE DONNÉES LOCALES ──────────────────────────────────────────
+let DOSSARDS=[
+  {id:1,titre:"UTMB® 100K",lieu:"Chamonix",date:"26 août 2026",prix:1250,type:"Trail",dist:"100 km",deniv:"6 100 m",img:IMGS.utmb,vendeur:"Lucas R.",desc:"Dossard pour l'UTMB 100K. Transfert officiel via l'organisation. Je ne pourrai pas y participer suite à une blessure.",places:1,note:"4,9 (67 avis)"},
+  {id:2,titre:"SaintéLyon 80km",lieu:"Saint-Étienne",date:"30 nov. 2026",prix:480,type:"Trail",dist:"80 km",deniv:"2 400 m",img:IMGS.saintelyon,vendeur:"Pierre D.",desc:"Dossard SaintéLyon, grand parcours historique nocturne.",places:1,note:"4,8 (24 avis)"},
+  {id:3,titre:"Diagonale des Fous",lieu:"La Réunion",date:"17 oct. 2026",prix:990,type:"Ultra",dist:"165 km",deniv:"10 000 m",img:IMGS.reunion,vendeur:"Marie T.",desc:"Dossard mythique pour la Diag. Échange sécurisé.",places:1,note:"5,0 (41 avis)"},
+  {id:4,titre:"Marathon de Paris",lieu:"Paris",date:"7 avr. 2026",prix:150,type:"Route",dist:"42.195 km",deniv:"0 m",img:IMGS.paris,vendeur:"Emma D.",desc:"Dossard pour le Schneider Electric Marathon de Paris.",places:1,note:"4,7 (12 avis)"}
+];
+
+let MESSAGES=[
+  {id:1,nom:"Lucas R.",texte:"À propos de ton dossard UTMB...",heure:"09:41",unread:2,avatar:"🏃‍♂️"},
+  {id:2,nom:"Emma D.",texte:"Matériel Salomon S/Lab Ultra 3",heure:"Hier",unread:0,avatar:"👟"},
+  {id:3,nom:"Thomas B.",texte:"Dossard SaintéLyon 2026",heure:"Hier",unread:0,avatar:"🏃"},
+  {id:4,nom:"Julien C.",texte:"Hoka Speedgoat 5",heure:"2 j",unread:0,avatar:"⛰️"},
+  {id:5,nom:"Claire M.",texte:"Dossard Diagonale des Fous",heure:"3 j",unread:0,avatar:"🏃‍♀️"}
+];
+
+// ── ÉTAT DE L'APPLICATION ──────────────────────────────────────────────────
+let state={
+  screen:"landing", 
+  prev:[],
+  detailItem:DOSSARDS[0],
+  homeFilter:"Tous",
+  searchFilter:"Tous",
+  searchQuery:"",
+  isLoginMode:true,
+  pubMode:null,
+  pubStep:1,
+  pubData:{type:"Trail",course:"",date:"",dist:"",deniv:"",prix:"",desc:"",_photos:[],_transfert:false,_condAccepted:false,_init:false},
+  matStep:1,
+  matData:{category:"Chaussures",titre:"",etat:"Neuf",prix:"",desc:"",_photos:[],_shipping:null,_init:false},
+  user:{nom:"Jules Martin",ville:"Chamonix",email:"",adresse:"",cp:"",tel:""}
+};
+
+// ── MOTEUR DE RENDU GRAPHIQUE ──────────────────────────────────────────────────
+function render(){
+  const app=document.getElementById("app");
+  app.innerHTML="";
+  
+  // Utilisation de 100% au lieu de window.innerHeight pour éviter les bugs sur mobile
+  const shell=el("div",{style:css({width:"100%",maxWidth:"430px",height:"100%",background:C.bg,display:"flex",flexDirection:"column",overflow:"hidden",position:"relative",margin:"0 auto"})});
+  
+  shell.appendChild(statusBar());
+
+  // ── FILIGRANE LOGO MONTAGNE ──
+  const watermark=el("div",{style:css({position:"absolute",top:0,left:0,right:0,bottom:0,pointerEvents:"none",zIndex:0,display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden"})});
+  watermark.innerHTML=`<svg viewBox="0 0 100 60" style="width:72%;max-width:320px;opacity:0.04;" preserveAspectRatio="xMidYMid meet"><polygon points="20,60 50,15 68,40 82,25 100,60" stroke="#FF5500" stroke-width="5" fill="none" stroke-linejoin="round"/></svg>`;
+  shell.appendChild(watermark);
+  
+  const mainArea=div({flex:1,overflow:"hidden",display:"flex",flexDirection:"column",position:"relative",zIndex:1});
+  mainArea.className="fade";
+
+  switch(state.screen){
+    case "landing": mainArea.appendChild(landingScreen()); break;
+    case "auth": mainArea.appendChild(authScreen()); break;
+    case "home": mainArea.appendChild(homeScreen()); break;
+    case "search": mainArea.appendChild(searchScreen()); break;
+    case "publish": mainArea.appendChild(publishScreen()); break;
+    case "detail": mainArea.appendChild(detailScreen()); break;
+    case "messages": mainArea.appendChild(messagesScreen()); break;
+    case "profil": mainArea.appendChild(profilScreen()); break;
+  }
+  
+  shell.appendChild(mainArea);
+  
+  if(state.screen!=="landing" && state.screen!=="auth") shell.appendChild(bottomTabs());
+  
+  app.appendChild(shell);
+}
+
+// ── FONCTIONS UTILITAIRES ──────────────────────────────
+function el(tag,props={}){
+  const e=document.createElement(tag);
+  Object.entries(props).forEach(([k,v])=>{
+    if(k==="style") e.style.cssText=v;
+    else if(k.startsWith("on")) e[k.toLowerCase()]=v;
+    else e[k]=v;
+  });
+  return e;
+}
+function css(obj){return Object.entries(obj).map(([k,v])=>{const p=k.replace(/([A-Z])/g,m=>"-"+m.toLowerCase());return `${p}:${v}`;}).join(";");}
+function div(style={},children=[]){
+  const d=el("div",{style:css(style)});
+  children.forEach(c=>{if(c) d.appendChild(typeof c==="string"?document.createTextNode(c):c);});
+  return d;
+}
+function txt(tag,text,style={}){const e=el(tag,{style:css(style)});e.textContent=text;return e;}
+function go(screen,extra={}){state.prev.push(state.screen);if(extra.item)state.detailItem=extra.item;state.screen=screen;render();}
+function back(){if(state.prev.length>0){state.screen=state.prev.pop();render();}}
+function update(patch){Object.assign(state,patch);render();}
+
+// ── COMPOSANTS RÉUTILISABLES ───────────────────────────────────
+function statusBar(){
+  return div({height:"32px",display:"flex",justifyContent:"space-between",alignItems:"center",padding:"0 24px",fontSize:"12px",fontWeight:"600",color:"#fff"},[
+    txt("span","9:41"),
+    div({display:"flex",gap:"6px",alignItems:"center"},[txt("span","📶"),txt("span","🔋")])
+  ]);
+}
+
+// ── COUCHE 1 : ÉCRAN DE DÉMARRAGE ──────────────────────
+function landingScreen(){
+  const root=div({padding:"40px 24px",display:"flex",flexDirection:"column",justifyContent:"space-between",height:"100%"});
+  
+  const logoBox=div({textAlign:"center",marginTop:"40px"});
+  const mnt=el("div",{style:css({width:"64px",height:"38px",margin:"0 auto 12px",position:"relative"})});
+  mnt.innerHTML=`<svg viewBox="0 0 100 60" style="width:100%;height:100%;"><polygon points="20,60 50,15 68,40 82,25 100,60" stroke="${C.orange}" stroke-width="6" fill="none" stroke-linejoin="round"/></svg>`;
+  logoBox.appendChild(mnt);
+  logoBox.appendChild(txt("h1","TRAIVO",{fontSize:"34px",fontWeight:"900",letterSpacing:"1.5px",color:"#fff"}));
+  
+  const slogan=div({display:"flex",justifyContent:"center",gap:"4px",fontSize:"15px",fontWeight:"700",marginTop:"12px"});
+  slogan.appendChild(txt("span","Trouve. ",{color:"#fff"}));
+  slogan.appendChild(txt("span","Revends. ",{color:C.muted}));
+  slogan.appendChild(txt("span","Cours.",{color:C.orange}));
+  logoBox.appendChild(slogan);
+
+  logoBox.appendChild(txt("p","Traivo est la plateforme sécurisée des coureurs outdoor. Dossards, matériel, communauté : tout au même endroit.",{color:C.muted,fontSize:"12px",lineHeight:"1.6",marginTop:"24px",padding:"0 10px"}));
+  root.appendChild(logoBox);
+
+  const features=div({display:"flex",flexDirection:"column",gap:"20px",padding:"0 10px"});
+  [{t:"Sécurisé",d:"Transactions protégées",e:"🛡️"},{t:"Communauté",d:"Rejoins des trailers près de toi",e:"👥"},{t:"Passion",d:"Par des coureurs, pour des coureurs",e:"🏔️"}].forEach(f=>{
+    features.appendChild(div({display:"flex",gap:"16px",alignItems:"center"},[
+      div({width:"36px",height:"36px",background:"#13181E",borderRadius:"10px",display:"flex",alignItems:"center",justifyContent:"center",fontSize:"16px"},[f.e]),
+      div({},[txt("p",f.t,{fontSize:"13px",fontWeight:"700",color:"#fff"}),txt("p",f.d,{fontSize:"12px",color:C.muted})])
+    ]));
+  });
+  root.appendChild(features);
+
+  const actBtn=el("button",{style:css({background:C.orange,border:"none",borderRadius:"14px",padding:"16px",color:"#fff",fontWeight:"700",fontSize:"14px",width:"100%",boxShadow:"0 4px 15px rgba(255,85,0,0.25)",cursor:"pointer"})});
+  actBtn.textContent="Rejoindre Traivo";
+  actBtn.onclick=()=>go("auth");
+  root.appendChild(actBtn);
+
+  return root;
+}
+
+// ── COUCHE 2 : AUTHENTIFICATION ───────────────────────────────────
+function authScreen(){
+  const view=div({padding:"30px 24px",display:"flex",flexDirection:"column",justifyContent:"space-between",height:"100%"});
+  
+  const topRow=div({display:"flex",alignItems:"center",justifyContent:"space-between"});
+  const backBtn=div({cursor:"pointer",fontSize:"18px",color:"#fff"},[txt("span","←")]);
+  backBtn.onclick=()=>go("landing");
+  topRow.appendChild(backBtn);
+  topRow.appendChild(txt("span","TRAIVO",{fontSize:"14px",fontWeight:"800",letterSpacing:"1px",color:C.orange}));
+  topRow.appendChild(div({width:"18px"}));
+  
+  const formBox=div({marginTop:"15px",overflowY:"auto",flex:1,paddingRight:"4px"});
+  formBox.className="fade";
+  
+  formBox.appendChild(txt("h2",state.isLoginMode?"Ravi de vous revoir 👋":"Créer un compte 🏔️",{fontSize:"22px",fontWeight:"800",marginBottom:"6px"}));
+  formBox.appendChild(txt("p",state.isLoginMode?"Connectez-vous pour accéder à vos dossards.":"Rejoignez la plateforme sécurisée des coureurs.",{fontSize:"12px",color:C.muted,marginBottom:"20px"}));
+
+  const tabRow=div({display:"flex",background:C.card,borderRadius:"10px",padding:"4px",marginBottom:"20px",border:`1px solid ${C.border}`});
+  const tabLogin=div({flex:1,padding:"10px",textAlign:"center",borderRadius:"8px",fontSize:"12px",fontWeight:"600",cursor:"pointer",background:state.isLoginMode?C.orange:"transparent",color:"#fff"},["Connexion"]);
+  tabLogin.onclick=()=>update({isLoginMode:true});
+  const tabRegister=div({flex:1,padding:"10px",textAlign:"center",borderRadius:"8px",fontSize:"12px",fontWeight:"600",cursor:"pointer",background:!state.isLoginMode?C.orange:"transparent",color:"#fff"},["Inscription"]);
+  tabRegister.onclick=()=>update({isLoginMode:false});
+  tabRow.appendChild(tabLogin);
+  tabRow.appendChild(tabRegister);
+  formBox.appendChild(tabRow);
+
+  // Message d'état (erreur ou succès)
+  const statusMsg=div({marginBottom:"12px",display:"none"});
+  formBox.appendChild(statusMsg);
+  function showStatus(msg,isError=true){
+    statusMsg.style.display="block";
+    statusMsg.style.background=isError?"rgba(229,62,62,0.15)":"rgba(16,185,129,0.15)";
+    statusMsg.style.border=`1px solid ${isError?"#e53e3e":"#10b981"}`;
+    statusMsg.style.borderRadius="10px";
+    statusMsg.style.padding="10px 14px";
+    statusMsg.style.fontSize="12px";
+    statusMsg.style.color=isError?"#fc8181":"#6ee7b7";
+    statusMsg.textContent=msg;
+  }
+
+  let inputNom=null, inputVille=null, inputEmail=null, inputPassword=null;
+
+  if(!state.isLoginMode){
+    formBox.appendChild(txt("label","Nom & Prénom",{fontSize:"11px",fontWeight:"600",color:C.muted,display:"block",marginBottom:"6px"}));
+    inputNom=el("input",{placeholder:"ex: Jules Martin",style:css({width:"100%",background:C.card,border:`1px solid ${C.border}`,borderRadius:"10px",padding:"11px 14px",outline:"none",marginBottom:"14px",fontSize:"13px"})});
+    formBox.appendChild(inputNom);
+
+    formBox.appendChild(txt("label","Ville",{fontSize:"11px",fontWeight:"600",color:C.muted,display:"block",marginBottom:"6px"}));
+    inputVille=el("input",{placeholder:"ex: Chamonix",style:css({width:"100%",background:C.card,border:`1px solid ${C.border}`,borderRadius:"10px",padding:"11px 14px",outline:"none",marginBottom:"14px",fontSize:"13px"})});
+    formBox.appendChild(inputVille);
+  }
+
+  formBox.appendChild(txt("label","Adresse e-mail",{fontSize:"11px",fontWeight:"600",color:C.muted,display:"block",marginBottom:"6px"}));
+  inputEmail=el("input",{type:"email",placeholder:"coureur@traivo.com",style:css({width:"100%",background:C.card,border:`1px solid ${C.border}`,borderRadius:"10px",padding:"11px 14px",outline:"none",marginBottom:"14px",fontSize:"13px"})});
+  formBox.appendChild(inputEmail);
+
+  formBox.appendChild(txt("label","Mot de passe",{fontSize:"11px",fontWeight:"600",color:C.muted,display:"block",marginBottom:"6px"}));
+  inputPassword=el("input",{type:"password",placeholder:"••••••••••••",style:css({width:"100%",background:C.card,border:`1px solid ${C.border}`,borderRadius:"10px",padding:"11px 14px",outline:"none",marginBottom:"12px",fontSize:"13px"})});
+  formBox.appendChild(inputPassword);
+
+  if(state.isLoginMode){
+    const forgot=txt("p","Mot de passe oublié ?",{fontSize:"11px",color:C.orange,textAlign:"right",cursor:"pointer",fontWeight:"500"});
+    forgot.onclick=async()=>{
+      const email=inputEmail.value.trim();
+      if(!email){showStatus("Entrez votre email d'abord.");return;}
+      const sb=getSupabase();
+      if(!sb){showStatus("Connexion Supabase indisponible.");return;}
+      const {error}=await sb.auth.resetPasswordForEmail(email);
+      if(error) showStatus(error.message);
+      else showStatus("Email de récupération envoyé !",false);
+    };
+    formBox.appendChild(forgot);
+  } else {
+    const rowCheck=div({display:"flex",gap:"10px",alignItems:"flex-start",marginTop:"6px"});
+    const check=el("input",{type:"checkbox",checked:true,style:css({accentColor:C.orange,width:"15px",height:"15px",marginTop:"2px",cursor:"pointer"})});
+    rowCheck.appendChild(check);
+    const textTerms=div({fontSize:"11px",color:C.muted,lineHeight:"1.4"});
+    textTerms.appendChild(txt("span","J'accepte les "));
+    const cguLink=el("span",{style:css({color:C.orange,cursor:"pointer"})});
+    cguLink.textContent="Conditions Générales";
+    textTerms.appendChild(cguLink);
+    textTerms.appendChild(txt("span"," et la charte de transfert officiel."));
+    rowCheck.appendChild(textTerms);
+    formBox.appendChild(rowCheck);
+  }
+
+  const actions=div({marginTop:"20px"});
+  const submitBtn=el("button",{style:css({background:C.white,color:"#000",border:"none",borderRadius:"12px",padding:"14px",fontWeight:"700",fontSize:"13px",width:"100%",cursor:"pointer",boxShadow:"0 4px 10px rgba(255,255,255,0.05)"})});
+  submitBtn.textContent=state.isLoginMode?"Se connecter":"Créer mon compte de coureur";
+
+  submitBtn.onclick=async()=>{
+    const sb=getSupabase();
+    const email=(inputEmail?.value||"").trim();
+    const password=inputPassword?.value||"";
+
+    if(!email||!password){showStatus("Email et mot de passe requis.");return;}
+
+    submitBtn.disabled=true;
+    submitBtn.textContent="Chargement...";
+    statusMsg.style.display="none";
+
+    if(state.isLoginMode){
+      // ── CONNEXION
+      if(!sb){
+        // Fallback local si Supabase indisponible
+        state.user.email=email;
+        go("home"); return;
+      }
+      const {data,error}=await sb.auth.signInWithPassword({email,password});
+      if(error){
+        showStatus(error.message==="Invalid login credentials"?"Email ou mot de passe incorrect.":error.message);
+        submitBtn.disabled=false;
+        submitBtn.textContent="Se connecter";
+        return;
+      }
+      // Charge le profil depuis la BDD
+      await loadUserProfile(sb,data.user.id);
+      state.user.email=email;
+      go("home");
+    } else {
+      // ── INSCRIPTION
+      const nom=(inputNom?.value||"").trim();
+      const ville=(inputVille?.value||"").trim();
+      if(!nom){showStatus("Le nom est requis.");submitBtn.disabled=false;submitBtn.textContent="Créer mon compte de coureur";return;}
+      if(!sb){
+        state.user={...state.user,nom,ville,email};
+        go("home"); return;
+      }
+      const {data,error}=await sb.auth.signUp({email,password,options:{data:{nom,ville}}});
+      if(error){
+        showStatus(error.message==="User already registered"?"Un compte existe déjà avec cet email.":error.message);
+        submitBtn.disabled=false;
+        submitBtn.textContent="Créer mon compte de coureur";
+        return;
+      }
+      // Crée le profil en BDD
+      await sb.from("profiles").upsert({
+        id:data.user.id,
+        nom,ville,email,
+        created_at:new Date().toISOString()
+      });
+      state.user=Object.assign({},state.user,{nom,ville,email,_supaId:data.user.id});
+      showStatus("Compte créé ! Vérifiez votre email pour confirmer.",false);
+      setTimeout(()=>go("home"),2000);
+    }
+  };
+
+  actions.appendChild(submitBtn);
+  view.appendChild(topRow);
+  view.appendChild(formBox);
+  view.appendChild(actions);
+  return view;
+}
+
+// ── Charge le profil utilisateur depuis Supabase ────────────────────────────
+async function loadUserProfile(sb,userId){
+  try{
+    const {data}=await sb.from("profiles").select("*").eq("id",userId).single();
+    if(data){
+      state.user=Object.assign({},state.user,{
+        nom:data.nom||state.user.nom,
+        ville:data.ville||state.user.ville,
+        email:data.email||state.user.email,
+        adresse:data.adresse||"",
+        cp:data.cp||"",
+        tel:data.tel||"",
+        _supaId:userId
+      });
+    }
+  }catch(e){console.warn("loadUserProfile error:",e);}
+}
+
+// ── Charge les annonces depuis Supabase ────────────────────────────────────
+async function loadAnnonces(){
+  const sb=getSupabase();
+  if(!sb) return;
+  try{
+    const {data,error}=await sb.from("annonces").select("*").order("created_at",{ascending:false}).limit(50);
+    if(error||!data||data.length===0) return;
+    // Fusionne avec les annonces locales (les annonces Supabase en premier)
+    const supaIds=new Set(data.map(a=>String(a.id)));
+    const localOnly=DOSSARDS.filter(d=>!supaIds.has(String(d.id)));
+    DOSSARDS=[...data.map(a=>({
+      id:a.id,titre:a.titre,lieu:a.lieu,date:a.date,
+      prix:a.prix,type:a.type,dist:a.dist||"–",deniv:a.deniv||"–",
+      img:a.img||IMGS.utmb,vendeur:a.vendeur,desc:a.desc||"",
+      places:1,note:a.note||"Nouveau",
+      _photos:a.photos||[],_shipping:a.shipping||null,
+      category:a.category||"",etat:a.etat||""
+    })),...localOnly];
+    render();
+  }catch(e){console.warn("loadAnnonces error:",e);}
+}
+
+// ── Sauvegarde une annonce dans Supabase ──────────────────────────────────
+async function saveAnnonce(annonce){
+  const sb=getSupabase();
+  if(!sb) return;
+  try{
+    await sb.from("annonces").insert({
+      titre:annonce.titre,lieu:annonce.lieu,date:annonce.date,
+      prix:annonce.prix,type:annonce.type,dist:annonce.dist,deniv:annonce.deniv,
+      img:annonce.img,vendeur:annonce.vendeur,desc:annonce.desc,
+      note:annonce.note,photos:annonce._photos||[],
+      shipping:annonce._shipping||null,
+      category:annonce.category||null,etat:annonce.etat||null,
+      user_id:state.user._supaId||null,
+      created_at:new Date().toISOString()
+    });
+  }catch(e){console.warn("saveAnnonce error:",e);}
+}
+
+// ── COUCHE 3 : ÉCRAN D'ACCUEIL ──────────────────────────────────────
+function homeScreen(){
+  const view=div({flex:1,overflowY:"auto",paddingBottom:"30px"});
+
+  // ── Header
+  const head=div({padding:"20px 24px 10px",display:"flex",justifyContent:"space-between",alignItems:"center"});
+  head.appendChild(txt("h2","Bonjour Jules 👋",{fontSize:"20px",fontWeight:"800"}));
+  const bell=div({fontSize:"20px",cursor:"pointer"},["🔔"]);
+  bell.onclick=()=>go("messages");
+  head.appendChild(bell);
+  view.appendChild(head);
+
+  // ── Barre de recherche
+  const searchBar=div({margin:"8px 24px 12px",padding:"11px 16px",background:C.card,borderRadius:"12px",border:`1px solid ${C.border}`,display:"flex",alignItems:"center",gap:"10px",color:C.muted,fontSize:"13px",cursor:"pointer"});
+  searchBar.onclick=()=>go("search");
+  searchBar.appendChild(txt("span","🔍",{fontSize:"14px"}));
+  searchBar.appendChild(txt("span","Rechercher une course, un dossard...",{color:C.muted,fontSize:"12px"}));
+  view.appendChild(searchBar);
+
+  // ── Chips catégories
+  const catRow=div({display:"flex",gap:"8px",padding:"2px 24px 14px",overflowX:"auto"});
+  ["Dossards","Matériel","Communauté"].forEach(cat=>{
+    const selected=state.homeFilter===cat||(cat==="Dossards"&&state.homeFilter==="Tous");
+    const catBtn=div({
+      background:selected?"#1A1F26":"transparent",
+      border:`1px solid ${selected?"#fff":C.border}`,
+      borderRadius:"20px",padding:"7px 18px",
+      fontSize:"12px",fontWeight:"600",
+      color:selected?"#fff":C.muted,
+      cursor:"pointer",flexShrink:0
+    },[cat]);
+    catBtn.onclick=()=>update({homeFilter:cat==="Dossards"?"Tous":cat});
+    catRow.appendChild(catBtn);
+  });
+  view.appendChild(catRow);
+
+  // ── Section "Courses populaires"
+  const secPop=div({padding:"0 24px 8px",display:"flex",justifyContent:"space-between",alignItems:"center"});
+  secPop.appendChild(txt("h3","Courses populaires",{fontSize:"14px",fontWeight:"700"}));
+  const voirToutPop=txt("span","Voir tout",{fontSize:"11px",color:C.orange,fontWeight:"600",cursor:"pointer"});
+  voirToutPop.onclick=()=>go("search");
+  secPop.appendChild(voirToutPop);
+  view.appendChild(secPop);
+
+  // ── Carrousel horizontal cartes populaires
+  const scrollPop=div({display:"flex",gap:"10px",padding:"4px 24px 16px",overflowX:"auto"});
+  DOSSARDS.slice(0,3).forEach(d=>{
+    const card=div({width:"115px",borderRadius:"14px",position:"relative",overflow:"hidden",flexShrink:0,cursor:"pointer",background:C.card});
+    card.onclick=()=>go("detail",{item:d});
+
+    // Image
+    const imgWrap=div({width:"100%",height:"115px",position:"relative",overflow:"hidden"});
+    imgWrap.appendChild(el("img",{src:d.img,style:css({width:"100%",height:"100%",objectFit:"cover",opacity:"0.55"})}));
+    const gradient=div({position:"absolute",bottom:0,left:0,right:0,height:"60px",background:"linear-gradient(to top,rgba(0,0,0,0.85),transparent)"});
+    imgWrap.appendChild(gradient);
+    card.appendChild(imgWrap);
+
+    // Infos sous image
+    const info=div({padding:"8px 8px 10px"});
+    // Titre (peut être multi-mots)
+    const titreShort=d.titre.length>14?d.titre.substring(0,14)+"…":d.titre;
+    info.appendChild(txt("p",titreShort,{fontSize:"11px",fontWeight:"700",color:"#fff",lineHeight:"1.3"}));
+    info.appendChild(txt("p",d.date.substring(0,12),{fontSize:"9px",color:C.muted,marginTop:"2px"}));
+    info.appendChild(txt("p",d.lieu,{fontSize:"9px",color:C.muted}));
+
+    // Bouton Acheter
+    const buyBtn=el("button",{style:css({marginTop:"6px",background:C.orange,border:"none",borderRadius:"6px",padding:"4px 8px",fontSize:"9px",fontWeight:"700",color:"#fff",cursor:"pointer",width:"100%"})});
+    buyBtn.textContent="Acheter";
+    buyBtn.onclick=e=>{e.stopPropagation();go("detail",{item:d});};
+    info.appendChild(buyBtn);
+
+    card.appendChild(info);
+    scrollPop.appendChild(card);
+  });
+  view.appendChild(scrollPop);
+
+  // ── Section "Dossards récents"
+  const secRec=div({padding:"0 24px 10px",display:"flex",justifyContent:"space-between",alignItems:"center"});
+  secRec.appendChild(txt("h3","Dossards récents",{fontSize:"14px",fontWeight:"700"}));
+  const voirToutRec=txt("span","Voir tout",{fontSize:"11px",color:C.orange,fontWeight:"600",cursor:"pointer"});
+  voirToutRec.onclick=()=>go("search");
+  secRec.appendChild(voirToutRec);
+  view.appendChild(secRec);
+
+  // ── Liste verticale dossards récents
+  const listRec=div({padding:"0 24px",display:"flex",flexDirection:"column",gap:"10px"});
+  DOSSARDS.slice(0,4).forEach(d=>{
+    const card=div({
+      background:C.card,
+      borderRadius:"16px",
+      border:`1px solid ${C.border}`,
+      padding:"12px 14px",
+      display:"flex",
+      gap:"12px",
+      alignItems:"center",
+      cursor:"pointer",
+      position:"relative"
+    });
+    card.onclick=()=>go("detail",{item:d});
+
+    // Image
+    card.appendChild(el("img",{src:d.img,style:css({width:"66px",height:"66px",borderRadius:"12px",objectFit:"cover",flexShrink:0})}));
+
+    // Infos centrales
+    const info=div({flex:1,display:"flex",flexDirection:"column",gap:"3px"});
+    info.appendChild(txt("p",d.titre,{fontSize:"13px",fontWeight:"700",color:"#fff"}));
+    info.appendChild(txt("p",`${d.date} · ${d.lieu}`,{fontSize:"10px",color:C.muted}));
+
+    // Prix en orange
+    info.appendChild(txt("p",`${d.prix} €`,{fontSize:"14px",fontWeight:"900",color:C.orange,marginTop:"4px"}));
+
+    // Bouton Acheter
+    const buyBtn2=el("button",{style:css({background:C.orange,border:"none",borderRadius:"7px",padding:"5px 12px",fontSize:"10px",fontWeight:"700",color:"#fff",cursor:"pointer",marginTop:"4px",alignSelf:"flex-start"})});
+    buyBtn2.textContent="Acheter";
+    buyBtn2.onclick=e=>{e.stopPropagation();go("detail",{item:d});};
+    info.appendChild(buyBtn2);
+
+    card.appendChild(info);
+
+    // Bouton cœur
+    const heart=div({
+      position:"absolute",right:"14px",top:"14px",
+      fontSize:"18px",cursor:"pointer",color:C.muted,
+      lineHeight:1
+    },["♡"]);
+    heart.onclick=e=>{
+      e.stopPropagation();
+      heart.textContent=heart.textContent==="♡"?"♥":"♡";
+      heart.style.color=heart.textContent==="♥"?C.orange:C.muted;
+    };
+    card.appendChild(heart);
+
+    listRec.appendChild(card);
+  });
+  view.appendChild(listRec);
+
+  return view;
+}
+
+// ── COUCHE 4 : ÉCRAN RECHERCHE ────────────────────────────────
+function searchScreen(){
+  const view=div({flex:1,overflowY:"auto",paddingBottom:"20px"});
+  view.appendChild(div({padding:"20px 24px 5px"},[txt("h2","Dossards",{fontSize:"22px",fontWeight:"800"})]));
+
+  const box=div({padding:"10px 24px",display:"flex",gap:"10px"});
+  const input=el("input",{placeholder:"🔍 Rechercher...",value:state.searchQuery,style:css({flex:1,background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:"10px 14px",fontSize:"13px",outline:"none"})});
+  box.appendChild(input);
+  view.appendChild(box);
+
+  const chips=div({display:"flex",gap:"8px",padding:"5px 24px 15px",overflowX:"auto"});
+  ["Tous","Trail","Route","Ultra"].forEach(f=>{
+    const act=state.searchFilter===f;
+    const chip=el("button",{style:css({background:act?C.orange:C.card,border:`1px solid ${act?C.orange:C.border}`,borderRadius:"20px",padding:"6px 14px",color:"#fff",fontSize:"11px",fontWeight:"600",flexShrink:0,cursor:"pointer"})});
+    chip.textContent=f;
+    chip.onclick=()=>update({searchFilter:f});
+    chips.appendChild(chip);
+  });
+  view.appendChild(chips);
+
+  const list=div({padding:"0 24px",display:"flex",flexDirection:"column",gap:"12px"});
+  view.appendChild(list);
+
+  // ── Affiche la liste filtrée sans toucher à l'input (préserve le clavier)
+  function renderList(){
+    list.innerHTML="";
+    const q=(state.searchQuery||"").trim().toLowerCase();
+    const results=DOSSARDS.filter(d=>{
+      const matchFilter=state.searchFilter==="Tous"||d.type===state.searchFilter;
+      const matchQuery=!q||
+        (d.titre&&d.titre.toLowerCase().includes(q))||
+        (d.lieu&&d.lieu.toLowerCase().includes(q))||
+        (d.type&&d.type.toLowerCase().includes(q));
+      return matchFilter&&matchQuery;
+    });
+
+    if(results.length===0){
+      const empty=div({padding:"40px 0",textAlign:"center"});
+      empty.appendChild(txt("p","🔍",{fontSize:"28px",marginBottom:"8px"}));
+      empty.appendChild(txt("p","Aucun résultat trouvé",{fontSize:"13px",color:C.muted,fontWeight:"600"}));
+      list.appendChild(empty);
+      return;
+    }
+
+    results.forEach(d=>{
+      const card=div({background:C.card,borderRadius:"16px",border:`1px solid ${C.border}`,padding:"12px",display:"flex",gap:"14px",cursor:"pointer"});
+      card.onclick=()=>go("detail",{item:d});
+      card.appendChild(el("img",{src:d.img,style:css({width:"64px",height:"64px",borderRadius:"12px",objectFit:"cover"})}));
+      const info=div({flex:1,display:"flex",flexDirection:"column",justifyContent:"space-between"});
+      info.appendChild(div({display:"flex",justifyContent:"space-between"},[txt("span",d.titre,{fontSize:"13px",fontWeight:"700"}),txt("span",`${d.prix} €`,{fontSize:"13px",fontWeight:"800"})]));
+      info.appendChild(txt("p",`${d.date} - ${d.lieu}`,{fontSize:"11px",color:C.muted}));
+      card.appendChild(info);
+      list.appendChild(card);
+    });
+  }
+
+  // Met à jour state.searchQuery ET la liste, SANS render() global (garde le clavier ouvert)
+  input.oninput=e=>{
+    state.searchQuery=e.target.value;
+    renderList();
+  };
+
+  renderList();
+  return view;
+}
+
+// ── COUCHE 5 : ÉCRAN DÉTAIL DU DOSSARD ──────────────────────────
+function onlyImages(arr){
+  return (arr||[]).filter(p=>typeof p==="string");
+}
+function onlyPdfs(arr){
+  return (arr||[]).filter(p=>p&&p.type==="pdf");
+}
+// Construit la liste unifiée des items du carrousel : images + PDF
+function carouselItems(arr,fallbackImg){
+  const items=(arr||[]).map(p=>typeof p==="string"?{type:"image",src:p}:{type:"pdf",name:p.name,data:p.data,pageImage:p.pageImage});
+  if(items.length>0) return items;
+  return fallbackImg?[{type:"image",src:fallbackImg}]:[];
+}
+// ── Chargement différé et sécurisé de PDF.js ──────────────────────────────
+let _pdfJsLoadPromise=null;
+function loadPdfJs(){
+  if(_pdfJsLoadPromise) return _pdfJsLoadPromise;
+  _pdfJsLoadPromise=new Promise((resolve)=>{
+    try{
+      if(window.pdfjsLib){
+        window.pdfjsLib.GlobalWorkerOptions.workerSrc="https://unpkg.com/pdfjs-dist@3.4.120/build/pdf.worker.min.js";
+        resolve(window.pdfjsLib);return;
+      }
+      const s=document.createElement("script");
+      s.src="https://unpkg.com/pdfjs-dist@3.4.120/build/pdf.min.js";
+      s.onload=()=>{
+        try{
+          if(window.pdfjsLib){
+            window.pdfjsLib.GlobalWorkerOptions.workerSrc="https://unpkg.com/pdfjs-dist@3.4.120/build/pdf.worker.min.js";
+            resolve(window.pdfjsLib);
+          }else{resolve(null);}
+        }catch(e){resolve(null);}
+      };
+      s.onerror=()=>resolve(null);
+      document.head.appendChild(s);
+      setTimeout(()=>resolve(window.pdfjsLib||null),8000);
+    }catch(e){resolve(null);}
+  });
+  return _pdfJsLoadPromise;
+}
+
+// ── Extraction d'images JPEG/PNG embarquées dans le PDF en JS pur ──────────
+// Parcourt les bytes du PDF brut pour trouver les markers JPEG (FFD8FF) et PNG (89504E47)
+// et les extraire comme des images affichables directement.
+function extractImagesFromPdfBytes(bytes){
+  const images=[];
+  for(let i=0;i<bytes.length-3;i++){
+    // Marker JPEG : FF D8 FF
+    if(bytes[i]===0xFF&&bytes[i+1]===0xD8&&bytes[i+2]===0xFF){
+      // Trouve la fin du JPEG : FF D9
+      let end=i+2;
+      while(end<bytes.length-1){
+        if(bytes[end]===0xFF&&bytes[end+1]===0xD9){end+=2;break;}
+        end++;
+      }
+      if(end-i>1000){ // ignore les miniatures trop petites
+        const chunk=bytes.slice(i,end);
+        const b64=btoa(String.fromCharCode(...Array.from(chunk).slice(0,Math.min(chunk.length,65536))));
+        images.push("data:image/jpeg;base64,"+b64);
+      }
+      i=end-1;
+    }
+    // Marker PNG : 89 50 4E 47 0D 0A 1A 0A
+    else if(i+7<bytes.length&&bytes[i]===0x89&&bytes[i+1]===0x50&&bytes[i+2]===0x4E&&bytes[i+3]===0x47){
+      // Trouve la fin du PNG : 49 45 4E 44 AE 42 60 82
+      let end=i+8;
+      while(end<bytes.length-7){
+        if(bytes[end]===0x49&&bytes[end+1]===0x45&&bytes[end+2]===0x4E&&bytes[end+3]===0x44){end+=8;break;}
+        end++;
+      }
+      if(end-i>1000){
+        const chunk=bytes.slice(i,end);
+        // Convert chunk to base64 in batches to avoid stack overflow
+        let b64="";
+        const BATCH=8192;
+        for(let b=0;b<chunk.length;b+=BATCH){
+          b64+=btoa(String.fromCharCode(...Array.from(chunk.subarray(b,b+BATCH))));
+        }
+        images.push("data:image/png;base64,"+b64);
+      }
+      i=end-1;
+    }
+  }
+  return images;
+}
+
+// ── Rendu d'une page PDF en image via canvas (avec PDF.js ou extraction directe) ──
+// Retourne un tableau de data URL PNG (une par page), ou un tableau avec une vignette générique
+async function renderPdfAllPagesToImages(dataUrl,name){
+  try{
+    // 1ère tentative : PDF.js (rendu fidèle page par page)
+    const pdfjsLib=await loadPdfJs();
+    if(pdfjsLib){
+      try{
+        const base64=dataUrl.split(",")[1];
+        const byteChars=atob(base64);
+        const byteArray=new Uint8Array(byteChars.length);
+        for(let i=0;i<byteChars.length;i++) byteArray[i]=byteChars.charCodeAt(i);
+        const pdf=await pdfjsLib.getDocument({data:byteArray}).promise;
+        const maxPages=Math.min(pdf.numPages,5);
+        const images=[];
+        for(let pageNum=1;pageNum<=maxPages;pageNum++){
+          try{
+            const page=await pdf.getPage(pageNum);
+            const scale=1.5;
+            const viewport=page.getViewport({scale});
+            const canvas=document.createElement("canvas");
+            canvas.width=viewport.width;
+            canvas.height=viewport.height;
+            const ctx=canvas.getContext("2d");
+            ctx.fillStyle="#ffffff";
+            ctx.fillRect(0,0,canvas.width,canvas.height);
+            await page.render({canvasContext:ctx,viewport}).promise;
+            images.push(canvas.toDataURL("image/jpeg",0.85));
+          }catch(e){console.warn("Page",pageNum,"error:",e);}
+        }
+        if(images.length>0) return images;
+      }catch(e){console.warn("PDF.js render failed, trying extraction:",e);}
+    }
+
+    // 2ème tentative : extraction des images JPEG/PNG embarquées dans le PDF
+    try{
+      const base64=dataUrl.split(",")[1];
+      const byteChars=atob(base64);
+      const bytes=new Uint8Array(byteChars.length);
+      for(let i=0;i<byteChars.length;i++) bytes[i]=byteChars.charCodeAt(i);
+      const extracted=extractImagesFromPdfBytes(bytes);
+      if(extracted.length>0) return extracted;
+    }catch(e){console.warn("Image extraction failed:",e);}
+
+    // Fallback final : vignette générique avec le nom du fichier
+    return [drawGenericPdfThumbnail(name)];
+  }catch(err){
+    console.error("renderPdfAllPagesToImages error:",err);
+    try{return [drawGenericPdfThumbnail(name)];}catch(e){return [];}
+  }
+}
+
+// Dessine une vignette générique (fallback si PDF.js indisponible)
+function drawGenericPdfThumbnail(name){
+  const canvas=document.createElement("canvas");
+  canvas.width=400;canvas.height=520;
+  const ctx=canvas.getContext("2d");
+  ctx.fillStyle="#ffffff";ctx.fillRect(0,0,400,520);
+  ctx.fillStyle="#f0f0f0";ctx.fillRect(8,8,392,512);
+  ctx.fillStyle="#ffffff";ctx.fillRect(0,0,392,512);
+  ctx.fillStyle="#e0e0e0";
+  ctx.beginPath();ctx.moveTo(302,0);ctx.lineTo(392,90);ctx.lineTo(302,90);ctx.closePath();ctx.fill();
+  ctx.fillStyle="#f5f5f5";
+  ctx.beginPath();ctx.moveTo(300,0);ctx.lineTo(392,88);ctx.lineTo(300,88);ctx.closePath();ctx.fill();
+  ctx.strokeStyle="#d0d0d0";ctx.lineWidth=1;
+  ctx.beginPath();ctx.moveTo(300,0);ctx.lineTo(300,88);ctx.lineTo(392,88);ctx.stroke();
+  const r=6,x=20,y=20,w=80,h=100;
+  ctx.fillStyle="#e53e3e";
+  ctx.beginPath();
+  ctx.moveTo(x+r,y);ctx.lineTo(x+w-r,y);ctx.arcTo(x+w,y,x+w,y+r,r);
+  ctx.lineTo(x+w,y+h-r);ctx.arcTo(x+w,y+h,x+w-r,y+h,r);
+  ctx.lineTo(x+r,y+h);ctx.arcTo(x,y+h,x,y+h-r,r);
+  ctx.lineTo(x,y+r);ctx.arcTo(x,y,x+r,y,r);
+  ctx.closePath();ctx.fill();
+  ctx.fillStyle="#ffffff";ctx.font="bold 20px sans-serif";ctx.textAlign="center";
+  ctx.fillText("PDF",60,78);
+  const shortName=(name||"Document.pdf").length>28?(name||"Document.pdf").substring(0,25)+"...":(name||"Document.pdf");
+  ctx.fillStyle="#1a1a1a";ctx.font="bold 18px sans-serif";ctx.textAlign="left";
+  ctx.fillText(shortName,20,160);
+  ctx.fillStyle="#d0d0d0";
+  [[20,190,340],[20,210,280],[20,230,320],[20,250,250]].forEach(([lx,ly,lw])=>ctx.fillRect(lx,ly,lw,10));
+  ctx.fillStyle="#e0e0e0";
+  [[20,280,360],[20,300,310],[20,320,280],[20,340,340],[20,360,200]].forEach(([lx,ly,lw])=>ctx.fillRect(lx,ly,lw,8));
+  const bx=20,by=420,bw=180,bh=44,br=8;
+  ctx.fillStyle="#FF5500";
+  ctx.beginPath();
+  ctx.moveTo(bx+br,by);ctx.lineTo(bx+bw-br,by);ctx.arcTo(bx+bw,by,bx+bw,by+br,br);
+  ctx.lineTo(bx+bw,by+bh-br);ctx.arcTo(bx+bw,by+bh,bx+bw-br,by+bh,br);
+  ctx.lineTo(bx+br,by+bh);ctx.arcTo(bx,by+bh,bx,by+bh-br,br);
+  ctx.lineTo(bx,by+br);ctx.arcTo(bx,by,bx+br,by,br);
+  ctx.closePath();ctx.fill();
+  ctx.fillStyle="#ffffff";ctx.font="bold 14px sans-serif";ctx.textAlign="center";
+  ctx.fillText("Aperçu indisponible",110,447);
+  return canvas.toDataURL("image/png");
+}
+
+
+function pdfFullscreenView(item,onClose){
+  const view=div({position:"relative",width:"100%",height:"100%",background:"#1a1a1a",display:"flex",flexDirection:"column"});
+  const bar=div({display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 16px",background:"#12161A",borderBottom:`1px solid ${C.border}`,flexShrink:"0"});
+  bar.appendChild(txt("span",item.name||"Justificatif.pdf",{fontSize:"13px",fontWeight:"700",color:"#fff"}));
+  const closeBtn=div({width:"32px",height:"32px",borderRadius:"50%",background:C.card,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",fontSize:"16px",color:"#fff",flexShrink:"0"});
+  closeBtn.textContent="✕";
+  closeBtn.onclick=onClose;
+  bar.appendChild(closeBtn);
+  view.appendChild(bar);
+
+  const imgWrap=div({flex:"1",overflow:"auto",display:"flex",alignItems:"center",justifyContent:"center",padding:"10px"});
+  if(item.pageImage){
+    imgWrap.appendChild(el("img",{src:item.pageImage,style:css({maxWidth:"100%",height:"auto",borderRadius:"6px",boxShadow:"0 4px 20px rgba(0,0,0,0.4)"})}));
+  }else{
+    const errBox=div({display:"flex",flexDirection:"column",alignItems:"center",gap:"12px",textAlign:"center"});
+    errBox.appendChild(txt("span","📄",{fontSize:"48px"}));
+    errBox.appendChild(txt("p","Aperçu indisponible pour ce document",{fontSize:"13px",fontWeight:"700",color:"#fff"}));
+    const dl=el("a",{href:item.data,download:item.name||"document.pdf",style:css({color:C.orange,fontSize:"13px",fontWeight:"700",textDecoration:"underline"})});
+    dl.textContent="⬇️ Télécharger le document";
+    errBox.appendChild(dl);
+    imgWrap.appendChild(errBox);
+  }
+  view.appendChild(imgWrap);
+  return view;
+}
+
+function detailScreen(){
+  const d=state.detailItem||DOSSARDS[0];
+
+  // ── PDF plein écran
+  if(state.pdfFullscreen){
+    return pdfFullscreenView(state.pdfFullscreen,()=>{state.pdfFullscreen=null;render();});
+  }
+
+  // ── Visionneuse plein écran (uniquement images)
+  if(state.photoViewer!=null){
+    const imgPhotos=onlyImages(d._photos);
+    const photos=imgPhotos.length>0?imgPhotos:[d.img];
+    return photoViewer(photos, state.photoViewer, ()=>{state.photoViewer=null;render();});
+  }
+
+  const view=div({flex:1,overflowY:"auto"});
+
+  // ── Carrousel : images + PDF mélangés
+  const items=carouselItems(d._photos,d.img);
+  let currentSlide=state.detailSlide||0;
+  if(currentSlide>=items.length) currentSlide=0;
+
+  const carousel=div({position:"relative",width:"100%",height:"240px",overflow:"hidden",background:"#000"});
+
+  const track=div({display:"flex",height:"100%",width:`${items.length*100}%`,transition:"transform 0.3s ease"});
+
+  function slideTo(i){
+    currentSlide=Math.max(0,Math.min(items.length-1,i));
+    state.detailSlide=currentSlide;
+    track.style.transform=`translateX(-${currentSlide*(100/items.length)}%)`;
+    makeDots();
+    updateExpandVisibility();
+  }
+
+  track.style.transform=`translateX(-${currentSlide*(100/items.length)}%)`;
+  // Index des images uniquement, pour mapper vers la visionneuse plein écran
+  let imgIndexMap=[];
+  items.forEach((item,i)=>{
+    const slide=div({flexShrink:0,width:`${100/items.length}%`,height:"100%",position:"relative",cursor:"pointer",overflow:"hidden"});
+    if(item.type==="image"){
+      imgIndexMap.push(i);
+      slide.appendChild(el("img",{src:item.src,style:css({width:"100%",height:"100%",objectFit:"cover",display:"block"})}));
+      const imgIdx=imgIndexMap.length-1;
+      slide.onclick=()=>{state.photoViewer=imgIdx;render();};
+    }else{
+      // Slide PDF — traitée exactement comme une photo (même rendu, même comportement)
+      if(item.pageImage){
+        slide.appendChild(el("img",{src:item.pageImage,style:css({width:"100%",height:"100%",objectFit:"cover",display:"block"})}));
+        slide.onclick=()=>{state.pdfFullscreen=item;render();};
+      }else{
+        slide.style.background=C.alt;
+        slide.style.display="flex";
+        slide.style.flexDirection="column";
+        slide.style.alignItems="center";
+        slide.style.justifyContent="center";
+        slide.style.gap="8px";
+        slide.appendChild(txt("span","📄",{fontSize:"40px"}));
+        slide.appendChild(txt("p","Aperçu indisponible",{fontSize:"11px",color:C.muted}));
+        slide.onclick=()=>{state.pdfFullscreen=item;render();};
+      }
+    }
+    track.appendChild(slide);
+  });
+  carousel.appendChild(track);
+
+  // Bouton retour
+  const backBtn=div({position:"absolute",top:"16px",left:"16px",width:"34px",height:"34px",background:"rgba(0,0,0,0.55)",borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",zIndex:10});
+  backBtn.onclick=back;
+  backBtn.appendChild(txt("span","←",{fontSize:"16px",fontWeight:"700"}));
+  carousel.appendChild(backBtn);
+
+  // Icône agrandir (image -> visionneuse photo, PDF -> PDF plein écran)
+  const expandIco=div({position:"absolute",top:"16px",right:"16px",width:"34px",height:"34px",background:"rgba(0,0,0,0.55)",borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",zIndex:10,fontSize:"14px"});
+  function updateExpandVisibility(){
+    const cur=items[currentSlide];
+    expandIco.textContent="⛶";
+    expandIco.style.display="flex";
+  }
+  expandIco.onclick=()=>{
+    const cur=items[currentSlide];
+    if(cur&&cur.type==="pdf"){
+      state.pdfFullscreen=cur;
+      render();
+    }else{
+      const idx=imgIndexMap.indexOf(currentSlide);
+      state.photoViewer=idx>=0?idx:0;
+      render();
+    }
+  };
+  carousel.appendChild(expandIco);
+  updateExpandVisibility();
+
+  // Flèches nav (si plusieurs items)
+  if(items.length>1){
+    const arrowStyle={position:"absolute",top:"50%",transform:"translateY(-50%)",width:"32px",height:"32px",background:"rgba(0,0,0,0.5)",borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",zIndex:10,fontSize:"16px"};
+    const prev=div({...arrowStyle,left:"10px"},["‹"]);
+    prev.onclick=e=>{e.stopPropagation();slideTo(currentSlide-1);};
+    const next=div({...arrowStyle,right:"10px"},["›"]);
+    next.onclick=e=>{e.stopPropagation();slideTo(currentSlide+1);};
+    carousel.appendChild(prev);
+    carousel.appendChild(next);
+  }
+
+  // Dots indicateurs (les dots PDF sont d'une couleur différente)
+  const dotsWrap=div({position:"absolute",bottom:"10px",left:0,right:0,display:"flex",justifyContent:"center",gap:"5px",zIndex:10});
+  function makeDots(){
+    dotsWrap.innerHTML="";
+    items.forEach((item,i)=>{
+      const isPdf=item.type==="pdf";
+      const dot=div({
+        width:i===currentSlide?"18px":"6px",height:"6px",borderRadius:"4px",
+        background:i===currentSlide?C.orange:(isPdf?"rgba(255,180,80,0.5)":"rgba(255,255,255,0.4)"),
+        transition:"all 0.2s",cursor:"pointer"
+      });
+      dot.onclick=e=>{e.stopPropagation();slideTo(i);};
+      dotsWrap.appendChild(dot);
+    });
+  }
+  if(items.length>1){makeDots();carousel.appendChild(dotsWrap);}
+
+  // Swipe tactile
+  let touchStartX=0;
+  carousel.addEventListener("touchstart",e=>touchStartX=e.touches[0].clientX,{passive:true});
+  carousel.addEventListener("touchend",e=>{
+    const dx=e.changedTouches[0].clientX-touchStartX;
+    if(dx<-40) slideTo(currentSlide+1);
+    else if(dx>40) slideTo(currentSlide-1);
+  },{passive:true});
+
+  view.appendChild(carousel);
+
+  // ── Contenu texte
+  const content=div({padding:"20px 24px"});
+  content.appendChild(txt("h2",d.titre,{fontSize:"22px",fontWeight:"800"}));
+
+  // Infos rapides
+  const meta=div({display:"flex",gap:"10px",flexWrap:"wrap",marginTop:"10px",marginBottom:"6px"});
+  if(d.type) meta.appendChild(chip(d.type));
+  if(d.dist) meta.appendChild(chip("📏 "+d.dist));
+  if(d.deniv&&d.deniv!=="–") meta.appendChild(chip("⛰ "+d.deniv));
+  if(d.date) meta.appendChild(chip("📅 "+d.date));
+  if(d.lieu) meta.appendChild(chip("📍 "+d.lieu));
+  if(d.vendeur) meta.appendChild(chip("👤 "+d.vendeur));
+  content.appendChild(meta);
+
+  content.appendChild(txt("p",`${d.prix} €`,{fontSize:"26px",fontWeight:"900",color:C.orange,marginTop:"10px"}));
+  if(d.desc) content.appendChild(txt("p",d.desc,{fontSize:"12px",color:C.muted,marginTop:"12px",lineHeight:"1.6"}));
+
+  // Compteur médias
+  if(items.length>1){
+    content.appendChild(txt("p",`${items.length} document(s) · appuyer pour agrandir / ouvrir`,{fontSize:"10px",color:C.muted,marginTop:"8px"}));
+  }
+
+  const payBtn=el("button",{style:css({background:C.orange,border:"none",borderRadius:"14px",padding:"16px",color:"#fff",fontWeight:"700",fontSize:"14px",width:"100%",marginTop:"24px",marginBottom:"20px",cursor:"pointer",boxShadow:"0 4px 15px rgba(255,85,0,0.3)"})});
+  payBtn.textContent="Acheter en sécurité";
+  payBtn.onclick=()=>{
+    // Cherche le meilleur container disponible pour le modal
+    const appContainer=document.getElementById("app")||document.body;
+    const fadeEl=appContainer.querySelector(".fade");
+    const modalRoot=fadeEl||appContainer;
+
+    const overlay=el("div",{style:css({position:"absolute",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.7)",zIndex:2000,display:"flex",alignItems:"flex-end",justifyContent:"center"})});
+    const modal=div({background:"#1A1F26",borderRadius:"20px 20px 0 0",padding:"24px 20px 36px",width:"100%",maxWidth:"430px"});
+
+    // Header
+    const mHead=div({display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"20px"});
+    mHead.appendChild(txt("h3","Paiement sécurisé",{fontSize:"16px",fontWeight:"800",color:"#fff"}));
+    const mClose=div({width:"30px",height:"30px",borderRadius:"50%",background:C.card,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",fontSize:"14px",color:"#fff"});
+    mClose.textContent="✕";
+    mClose.onclick=()=>overlay.remove();
+    mHead.appendChild(mClose);
+    modal.appendChild(mHead);
+
+    // ── Récapitulatif commande avec frais de port si matériel
+    const shipping=d._shipping;
+    const fraisPortNum=shipping&&shipping.tarif?parseFloat(shipping.tarif)||0:0;
+    const payerAcheteur=shipping&&shipping.payer==="acheteur";
+    const fraisAffichés=shipping&&payerAcheteur&&fraisPortNum>0;
+    const total=fraisAffichés?d.prix+fraisPortNum:d.prix;
+
+    const recapCard=div({background:C.card,borderRadius:"14px",padding:"14px 16px",marginBottom:"14px",display:"flex",flexDirection:"column",gap:"10px"});
+
+    // Ligne article
+    const lineArticle=div({display:"flex",justifyContent:"space-between",alignItems:"center"});
+    lineArticle.appendChild(txt("span",d.titre,{fontSize:"13px",fontWeight:"700",color:"#fff",maxWidth:"65%"}));
+    lineArticle.appendChild(txt("span",`${d.prix} €`,{fontSize:"13px",fontWeight:"700",color:"#fff"}));
+    recapCard.appendChild(lineArticle);
+
+    if(fraisAffichés){
+      // Séparateur
+      recapCard.appendChild(div({height:"1px",background:C.border}));
+
+      // Ligne frais de port
+      const shippingLabels={"mondial_relay":"Mondial Relay","colissimo":"Colissimo","chronopost":"Chronopost","laposte_eco":"Colis éco","relais_colis":"Relais Colis","remise_main":"Remise en main"};
+      const transporteur=shippingLabels[shipping.mode]||"Livraison";
+      const linePort=div({display:"flex",justifyContent:"space-between",alignItems:"center"});
+      linePort.appendChild(txt("span",`📦 ${transporteur}`,{fontSize:"12px",color:C.muted}));
+      linePort.appendChild(txt("span",`${fraisPortNum.toFixed(2)} €`,{fontSize:"12px",color:C.muted}));
+      recapCard.appendChild(linePort);
+
+      // Séparateur
+      recapCard.appendChild(div({height:"1px",background:C.border}));
+
+      // Ligne total
+      const lineTotal=div({display:"flex",justifyContent:"space-between",alignItems:"center"});
+      lineTotal.appendChild(txt("span","Total",{fontSize:"14px",fontWeight:"800",color:"#fff"}));
+      lineTotal.appendChild(txt("span",`${total.toFixed(2)} €`,{fontSize:"18px",fontWeight:"900",color:C.orange}));
+      recapCard.appendChild(lineTotal);
+    }else{
+      // Pas de frais de port → juste afficher le prix en orange
+      const linePrice=div({display:"flex",justifyContent:"flex-end"});
+      linePrice.appendChild(txt("span",`${d.prix} €`,{fontSize:"18px",fontWeight:"900",color:C.orange}));
+      recapCard.appendChild(linePrice);
+      if(shipping&&shipping.mode==="remise_main"){
+        const linePort=div({display:"flex",alignItems:"center",gap:"6px"});
+        linePort.appendChild(txt("span","🤝",{fontSize:"12px"}));
+        linePort.appendChild(txt("span","Remise en main propre · Frais offerts",{fontSize:"11px",color:C.muted}));
+        recapCard.appendChild(linePort);
+      }else if(shipping&&shipping.payer==="vendeur"){
+        const linePort=div({display:"flex",alignItems:"center",gap:"6px"});
+        linePort.appendChild(txt("span","📦",{fontSize:"12px"}));
+        linePort.appendChild(txt("span","Frais de port offerts par le vendeur",{fontSize:"11px",color:"#10b981"}));
+        recapCard.appendChild(linePort);
+      }
+    }
+
+    modal.appendChild(recapCard);
+
+    // Infos vendeur
+    const sellerRow=div({display:"flex",gap:"10px",alignItems:"center",marginBottom:"16px",padding:"12px",background:C.card,borderRadius:"12px"});
+    sellerRow.appendChild(txt("span","👤",{fontSize:"20px"}));
+    const sellerInfo=div({});
+    sellerInfo.appendChild(txt("p",`Vendeur : ${d.vendeur||"Inconnu"}`,{fontSize:"12px",fontWeight:"700",color:"#fff"}));
+    sellerInfo.appendChild(txt("p",`Lieu : ${d.lieu||"France"}`,{fontSize:"11px",color:C.muted}));
+    sellerRow.appendChild(sellerInfo);
+    modal.appendChild(sellerRow);
+
+    // Badge sécurité
+    const secBadge=div({display:"flex",gap:"8px",alignItems:"center",background:"rgba(16,185,129,0.1)",border:"1px solid #10b981",borderRadius:"10px",padding:"10px 14px",marginBottom:"18px"});
+    secBadge.appendChild(txt("span","🔒",{fontSize:"14px"}));
+    const secTxt=div({});
+    secTxt.appendChild(txt("p","Paiement 100% sécurisé",{fontSize:"12px",fontWeight:"700",color:"#10b981"}));
+    secTxt.appendChild(txt("p","Vos coordonnées bancaires sont chiffrées et protégées par Stripe.",{fontSize:"10px",color:C.muted,marginTop:"2px"}));
+    secBadge.appendChild(secTxt);
+    modal.appendChild(secBadge);
+
+    // Champ carte (simulé)
+    const cardField=div({background:C.bg,border:`1px solid ${C.border}`,borderRadius:"10px",padding:"14px",marginBottom:"12px",display:"flex",justifyContent:"space-between",alignItems:"center"});
+    cardField.appendChild(txt("p","•••• •••• •••• 4242",{fontSize:"14px",color:C.muted,fontFamily:"monospace"}));
+    cardField.appendChild(txt("p","💳",{fontSize:"20px"}));
+    modal.appendChild(cardField);
+
+    // Bouton payer
+    const payNow=el("button",{style:css({background:C.orange,border:"none",borderRadius:"12px",padding:"16px",fontWeight:"800",color:"#fff",width:"100%",cursor:"pointer",fontSize:"14px",boxShadow:"0 4px 15px rgba(255,85,0,0.3)"})});
+    payNow.textContent=`Payer ${total.toFixed(2)} €`;
+    payNow.onclick=()=>{
+      overlay.remove();
+      const confOverlay=el("div",{style:css({position:"absolute",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.85)",zIndex:2000,display:"flex",alignItems:"center",justifyContent:"center"})});
+      const confBox=div({background:"#1A1F26",borderRadius:"20px",padding:"32px 24px",maxWidth:"340px",width:"90%",textAlign:"center"});
+      confBox.appendChild(txt("p","✅",{fontSize:"48px",marginBottom:"12px"}));
+      confBox.appendChild(txt("h2","Paiement confirmé !",{fontSize:"18px",fontWeight:"800",color:"#fff",marginBottom:"8px"}));
+      confBox.appendChild(txt("p",`${total.toFixed(2)} € débités. Votre achat pour "${d.titre}" est confirmé. Le vendeur a été notifié.`,{fontSize:"12px",color:C.muted,lineHeight:"1.6",marginBottom:"20px"}));
+      const okBtn=el("button",{style:css({background:C.orange,border:"none",borderRadius:"12px",padding:"14px 28px",fontWeight:"700",color:"#fff",cursor:"pointer",fontSize:"13px"})});
+      okBtn.textContent="Retour à l'accueil";
+      okBtn.onclick=()=>{confOverlay.remove();go("home");};
+      confBox.appendChild(okBtn);
+      confOverlay.appendChild(confBox);
+      modalRoot.appendChild(confOverlay);
+    };
+    modal.appendChild(payNow);
+
+    overlay.onclick=e=>{if(e.target===overlay)overlay.remove();};
+    modal.onclick=e=>e.stopPropagation();
+    overlay.appendChild(modal);
+    modalRoot.appendChild(overlay);
+  };
+  content.appendChild(payBtn);
+
+  view.appendChild(content);
+  return view;
+}
+
+function chip(label){
+  const c=div({background:C.card,border:`1px solid ${C.border}`,borderRadius:"20px",padding:"4px 10px"});
+  c.appendChild(txt("span",label,{fontSize:"10px",fontWeight:"600",color:C.muted}));
+  return c;
+}
+
+function photoViewer(photos, index, onClose){
+  let cur=index;
+  const view=div({position:"relative",width:"100%",height:"100%",background:"#000",display:"flex",flexDirection:"column",justifyContent:"center",alignItems:"center"});
+
+  // Bouton fermer
+  const closeBtn=div({position:"absolute",top:"20px",right:"20px",width:"36px",height:"36px",background:"rgba(255,255,255,0.15)",borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",zIndex:20,fontSize:"18px"});
+  closeBtn.textContent="✕";
+  closeBtn.onclick=onClose;
+  view.appendChild(closeBtn);
+
+  // Compteur
+  const counter=div({position:"absolute",top:"22px",left:"20px",background:"rgba(0,0,0,0.5)",borderRadius:"20px",padding:"4px 12px",zIndex:20});
+  counter.appendChild(txt("span",`${cur+1} / ${photos.length}`,{fontSize:"12px",fontWeight:"600"}));
+  view.appendChild(counter);
+
+  // Image principale
+  const imgWrap=div({width:"100%",flex:1,display:"flex",alignItems:"center",justifyContent:"center",padding:"60px 0"});
+  const mainImg=el("img",{src:photos[cur],style:css({maxWidth:"100%",maxHeight:"100%",objectFit:"contain",borderRadius:"6px"})});
+  imgWrap.appendChild(mainImg);
+  view.appendChild(imgWrap);
+
+  function goTo(i){
+    cur=Math.max(0,Math.min(photos.length-1,i));
+    mainImg.src=photos[cur];
+    counter.querySelector("span").textContent=`${cur+1} / ${photos.length}`;
+    updateThumbActive();
+  }
+
+  // Flèches
+  if(photos.length>1){
+    const aStyle={position:"absolute",top:"50%",transform:"translateY(-50%)",width:"40px",height:"40px",background:"rgba(255,255,255,0.12)",borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",zIndex:20,fontSize:"22px"};
+    const prev=div({...aStyle,left:"12px"},["‹"]);
+    prev.onclick=()=>goTo(cur-1);
+    const next=div({...aStyle,right:"12px"},["›"]);
+    next.onclick=()=>goTo(cur+1);
+    view.appendChild(prev);
+    view.appendChild(next);
+  }
+
+  // Miniatures en bas
+  if(photos.length>1){
+    const thumbRow=div({position:"absolute",bottom:"16px",left:0,right:0,display:"flex",gap:"6px",justifyContent:"center",padding:"0 16px",overflowX:"auto"});
+    photos.forEach((src,i)=>{
+      const t=el("img",{src,style:css({width:"50px",height:"50px",objectFit:"cover",borderRadius:"8px",cursor:"pointer",border:i===cur?`2px solid ${C.orange}`:"2px solid transparent",opacity:i===cur?1:0.5,transition:"all 0.2s"})});
+      t.onclick=()=>goTo(i);
+      thumbRow.appendChild(t);
+    });
+    view.appendChild(thumbRow);
+    function updateThumbActive(){
+      Array.from(thumbRow.children).forEach((t,i)=>{
+        t.style.border=i===cur?`2px solid ${C.orange}`:"2px solid transparent";
+        t.style.opacity=i===cur?1:0.5;
+      });
+    }
+  }else{
+    function updateThumbActive(){}
+  }
+
+  // Swipe tactile
+  let tx=0;
+  view.addEventListener("touchstart",e=>tx=e.touches[0].clientX,{passive:true});
+  view.addEventListener("touchend",e=>{
+    const dx=e.changedTouches[0].clientX-tx;
+    if(dx<-50) goTo(cur+1);
+    else if(dx>50) goTo(cur-1);
+  },{passive:true});
+
+  return view;
+}
+
+// ── COUCHE 6 : TUNNEL DE CREATION D'ANNONCE ───────────────────────────────
+function publishScreen(){
+  if(!state.pubMode) return publishChoiceScreen();
+  if(state.pubMode==="material") return publishMaterialScreen();
+  if(!state.pubStep || state.pubStep===1) return publishStep1();
+  if(state.pubStep===2) return publishStep2();
+  if(state.pubStep===3) return publishStep3();
+  return publishStep4();
+}
+
+function publishChoiceScreen(){
+  const view=div({flex:1,overflowY:"auto",padding:"20px 24px",display:"flex",flexDirection:"column"});
+
+  const topBar=div({display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"6px"});
+  const closeBtn=div({cursor:"pointer",fontSize:"18px",color:C.muted},[txt("span","✕")]);
+  closeBtn.onclick=()=>go("home");
+  topBar.appendChild(closeBtn);
+  topBar.appendChild(txt("h3","Publier une annonce",{fontSize:"13px",fontWeight:"700"}));
+  topBar.appendChild(div({width:"18px"}));
+  view.appendChild(topBar);
+
+  view.appendChild(txt("h2","Que souhaitez-vous vendre ?",{fontSize:"18px",fontWeight:"800",marginTop:"20px",marginBottom:"6px"}));
+  view.appendChild(txt("p","Choisissez le type d'annonce à publier.",{fontSize:"12px",color:C.muted,marginBottom:"24px"}));
+
+  function choiceCard(icon,title,sub,onClick){
+    const card=div({
+      background:C.card,border:`1px solid ${C.border}`,borderRadius:"16px",
+      padding:"20px",display:"flex",alignItems:"center",gap:"16px",
+      cursor:"pointer",marginBottom:"14px"
+    });
+    const iconBox=div({width:"52px",height:"52px",borderRadius:"14px",background:C.alt,display:"flex",alignItems:"center",justifyContent:"center",fontSize:"26px",flexShrink:"0"});
+    iconBox.textContent=icon;
+    card.appendChild(iconBox);
+    const info=div({flex:1});
+    info.appendChild(txt("p",title,{fontSize:"15px",fontWeight:"800",color:"#fff",marginBottom:"3px"}));
+    info.appendChild(txt("p",sub,{fontSize:"11px",color:C.muted,lineHeight:"1.5"}));
+    card.appendChild(info);
+    card.appendChild(txt("span","›",{fontSize:"22px",color:C.muted}));
+    card.onclick=onClick;
+    return card;
+  }
+
+  view.appendChild(choiceCard("🏃","Vendre un dossard","Inscription à une course que vous ne pouvez plus faire.",()=>{
+    state.pubMode="dossard";
+    if(!state.pubData||!state.pubData._init) state.pubData={type:"Trail",course:"",date:"",dist:"",deniv:"",prix:"",desc:"",_photos:[],_transfert:false,_init:true};
+    state.pubStep=1;
+    render();
+  }));
+
+  view.appendChild(choiceCard("🎒","Vendre du matériel","Chaussures, sacs, vêtements ou accessoires de course.",()=>{
+    state.pubMode="material";
+    if(!state.matData||!state.matData._init) state.matData={category:"Chaussures",titre:"",etat:"Neuf",prix:"",desc:"",_photos:[],_init:true};
+    state.matStep=1;
+    render();
+  }));
+
+  return view;
+}
+
+function publishStep1(){
+  // Init données si premier accès
+  if(!state.pubData||!state.pubData._init) state.pubData={type:"Trail",course:"",date:"",dist:"",deniv:"",prix:"",desc:"",_photos:[],_transfert:false,_init:true};
+
+  const view=div({flex:1,overflowY:"auto",padding:"20px 24px",display:"flex",flexDirection:"column"});
+
+  // Header
+  const topBar=div({display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"6px"});
+  const closeBtn=div({cursor:"pointer",fontSize:"18px",color:C.muted},[txt("span","✕")]);
+  closeBtn.onclick=()=>{state.pubStep=1;state.pubData._init=false;go("home");};
+  topBar.appendChild(closeBtn);
+  topBar.appendChild(txt("h3","Publier une annonce",{fontSize:"13px",fontWeight:"700"}));
+  topBar.appendChild(div({width:"18px"}));
+  view.appendChild(topBar);
+
+  // Barre progression 3 étapes
+  const stepsBar=div({display:"flex",gap:"6px",marginBottom:"20px",marginTop:"6px"});
+  [1,2,3,4].forEach(i=>stepsBar.appendChild(div({flex:1,height:"3px",borderRadius:"4px",background:i===1?C.orange:C.border})));
+  view.appendChild(stepsBar);
+
+  view.appendChild(txt("h2","Informations dossard",{fontSize:"18px",fontWeight:"800",marginBottom:"18px"}));
+
+  // Helpers
+  function field(label,inputEl,sub=""){
+    const wrap=div({marginBottom:"14px"});
+    const lbl=div({display:"flex",gap:"6px",alignItems:"center",marginBottom:"6px"});
+    lbl.appendChild(txt("span",label,{fontSize:"11px",fontWeight:"600",color:C.muted}));
+    if(sub) lbl.appendChild(txt("span",sub,{fontSize:"10px",color:C.orange,fontWeight:"600"}));
+    wrap.appendChild(lbl);
+    wrap.appendChild(inputEl);
+    return wrap;
+  }
+  function inp(opts={}){
+    const {styleObj,...rest}=opts;
+    return el("input",{...rest,style:css({width:"100%",background:C.card,border:`1px solid ${C.border}`,borderRadius:"10px",padding:"11px 14px",outline:"none",fontSize:"13px",color:"#fff"})});
+  }
+
+  // Sélecteur type
+  const selType=el("select",{style:css({width:"100%",background:C.card,border:`1px solid ${C.border}`,borderRadius:"10px",padding:"11px 14px",outline:"none",fontSize:"13px",color:"#fff",appearance:"none"})});
+  ["Trail","Route","Ultra","Montagne","Cross","Triathlon"].forEach(o=>{
+    const opt=el("option",{value:o});
+    opt.textContent=o;
+    if(o===state.pubData.type) opt.selected=true;
+    selType.appendChild(opt);
+  });
+  selType.onchange=e=>{state.pubData.type=e.target.value;render();};
+  view.appendChild(field("Type de course",selType));
+
+  // Nom
+  const inpCourse=inp({placeholder:"ex: UTMB 100K",value:state.pubData.course});
+  inpCourse.oninput=e=>state.pubData.course=e.target.value;
+  view.appendChild(field("Nom de la course",inpCourse));
+
+  // Date
+  const inpDate=inp({type:"date",value:state.pubData.date});
+  inpDate.oninput=e=>state.pubData.date=e.target.value;
+  view.appendChild(field("Date de la course",inpDate));
+
+  // Distance
+  const inpDist=inp({placeholder:"ex: 100 km",value:state.pubData.dist});
+  inpDist.oninput=e=>state.pubData.dist=e.target.value;
+  view.appendChild(field("Distance",inpDist));
+
+  // Dénivelé — visible si Trail / Ultra / Montagne
+  if(["Trail","Ultra","Montagne"].includes(state.pubData.type)){
+    const inpDeniv=inp({placeholder:"ex: 6 100 m",value:state.pubData.deniv});
+    inpDeniv.oninput=e=>state.pubData.deniv=e.target.value;
+    view.appendChild(field("Dénivelé positif",inpDeniv));
+  }
+
+  // Prix
+  const inpPrix=inp({type:"number",placeholder:"ex: 1250",value:state.pubData.prix||""});
+  inpPrix.oninput=e=>state.pubData.prix=parseInt(e.target.value)||0;
+  view.appendChild(field("Prix (€)",inpPrix));
+
+  // Bouton suivant
+  const nextBtn=el("button",{style:css({background:C.orange,border:"none",borderRadius:"12px",padding:"14px",fontWeight:"700",color:"#fff",width:"100%",cursor:"pointer",marginTop:"8px",marginBottom:"24px",fontSize:"13px"})});
+  nextBtn.textContent="Suivant →";
+  nextBtn.onclick=()=>{
+    if(!state.pubData.course||!state.pubData.prix){alert("Merci de remplir au moins le nom et le prix.");return;}
+    state.pubStep=2;render();
+  };
+  view.appendChild(nextBtn);
+  return view;
+}
+
+function publishStep2(){
+  const view=div({flex:1,overflowY:"auto",padding:"20px 24px",display:"flex",flexDirection:"column"});
+
+  // Header
+  const topBar=div({display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"6px"});
+  const backBtn=div({cursor:"pointer",fontSize:"18px",color:C.muted},[txt("span","←")]);
+  backBtn.onclick=()=>{state.pubStep=1;render();};
+  topBar.appendChild(backBtn);
+  topBar.appendChild(txt("h3","Publier une annonce",{fontSize:"13px",fontWeight:"700"}));
+  topBar.appendChild(div({width:"18px"}));
+  view.appendChild(topBar);
+
+  // Barre progression
+  const stepsBar=div({display:"flex",gap:"6px",marginBottom:"20px",marginTop:"6px"});
+  [1,2,3,4].forEach(i=>stepsBar.appendChild(div({flex:1,height:"3px",borderRadius:"4px",background:i<=2?C.orange:C.border})));
+  view.appendChild(stepsBar);
+
+  view.appendChild(txt("h2","Photos & description",{fontSize:"18px",fontWeight:"800",marginBottom:"18px"}));
+
+  // Upload photos
+  const photoLabel=div({display:"flex",gap:"6px",alignItems:"center",marginBottom:"6px"});
+  photoLabel.appendChild(txt("span","Photos",{fontSize:"11px",fontWeight:"600",color:C.muted}));
+  photoLabel.appendChild(txt("span","· Preuve d'achat obligatoire",{fontSize:"10px",color:C.orange,fontWeight:"600"}));
+  view.appendChild(photoLabel);
+
+  // Conseil preuve d'achat PDF
+  const pdfTip=div({background:"rgba(255,85,0,0.08)",border:`1px solid rgba(255,85,0,0.3)`,borderRadius:"10px",padding:"10px 14px",marginBottom:"12px",display:"flex",gap:"10px",alignItems:"flex-start"});
+  pdfTip.appendChild(txt("span","💡",{fontSize:"16px",flexShrink:"0"}));
+  const tipTxt=div({});
+  tipTxt.appendChild(txt("p","Preuve d'achat PDF ?",{fontSize:"11px",fontWeight:"700",color:C.orange,marginBottom:"3px"}));
+  tipTxt.appendChild(txt("p","Faites une capture d'écran de votre PDF, puis ajoutez-la comme photo. Elle s'affichera directement dans le carrousel.",{fontSize:"10px",color:C.muted,lineHeight:"1.5"}));
+  pdfTip.appendChild(tipTxt);
+  view.appendChild(pdfTip);
+
+  if(!state.pubData._photos) state.pubData._photos=[];
+
+  // Input image uniquement (plus de PDF — captures d'écran recommandées à la place)
+  const fileInp=el("input",{type:"file",accept:"image/*",multiple:true,style:css({display:"none"})});
+
+  function handleFiles(files){
+    const arr=Array.from(files);
+    let loaded=0;
+    if(arr.length===0) return;
+    arr.forEach(f=>{
+      const r=new FileReader();
+      r.onload=ev=>{
+        state.pubData._photos.push(ev.target.result);
+        loaded++;
+        if(loaded===arr.length) render();
+      };
+      r.readAsDataURL(f);
+    });
+  }
+  fileInp.onchange=e=>handleFiles(e.target.files);
+  view.appendChild(fileInp);
+
+  // ── Zone unique cliquable
+  const photoZone=div({
+    background:C.card,border:`2px dashed ${C.border}`,borderRadius:"14px",
+    padding:"22px 16px",textAlign:"center",marginBottom:"12px",cursor:"pointer",
+    position:"relative"
+  });
+
+  if(state.pubData._photos.length>0){
+    const previews=div({display:"flex",gap:"8px",flexWrap:"wrap",justifyContent:"center",marginBottom:"12px"});
+    state.pubData._photos.forEach((src,i)=>{
+      const wrap=div({position:"relative",flexShrink:0});
+      wrap.appendChild(el("img",{src,style:css({width:"76px",height:"76px",objectFit:"cover",borderRadius:"10px",display:"block"})}));
+      const del=div({position:"absolute",top:"-6px",right:"-6px",width:"20px",height:"20px",background:"#e53e3e",borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",fontSize:"11px",fontWeight:"700",color:"#fff",zIndex:5});
+      del.textContent="✕";
+      del.onclick=e=>{e.stopPropagation();state.pubData._photos.splice(i,1);render();};
+      wrap.appendChild(del);
+      previews.appendChild(wrap);
+    });
+    photoZone.appendChild(previews);
+  }
+
+  photoZone.appendChild(txt("p","📷",{fontSize:"26px",marginBottom:"4px"}));
+  photoZone.appendChild(txt("p",
+    state.pubData._photos.length>0?`${state.pubData._photos.length} photo(s) ajoutée(s) · Appuyer pour en ajouter`:"Appuyer pour ajouter des photos",
+    {fontSize:"12px",color:C.muted}
+  ));
+  photoZone.appendChild(txt("p","Photos du dossard + captures d'écran de la preuve d'achat",{fontSize:"10px",color:C.border,marginTop:"4px"}));
+
+  photoZone.onclick=()=>fileInp.click();
+  view.appendChild(photoZone);
+
+  if(state.pubData._photos.length>0){
+    view.appendChild(txt("p",`✅ ${state.pubData._photos.length} photo(s) · Preuve d'achat incluse`,{fontSize:"10px",color:C.orange,marginBottom:"10px",fontWeight:"600"}));
+  }
+
+  // Description
+  view.appendChild(txt("label","Description",{fontSize:"11px",fontWeight:"600",color:C.muted,display:"block",marginBottom:"6px"}));
+  const textarea=el("textarea",{placeholder:"Décrivez votre dossard, les raisons de la vente, l'état...",style:css({width:"100%",background:C.card,border:`1px solid ${C.border}`,borderRadius:"10px",padding:"12px 14px",outline:"none",fontSize:"12px",color:"#fff",resize:"none",height:"100px",lineHeight:"1.6"})});
+  textarea.value=state.pubData.desc||"";
+  textarea.oninput=e=>state.pubData.desc=e.target.value;
+  view.appendChild(textarea);
+
+  // ── Case à cocher transfert officiel ──
+  // On stocke l'état dans state.pubData._transfert
+  // Le toggle se fait via un div cliquable qui met à jour l'état ET le visuel directement
+  view.appendChild(div({height:"16px"})); // spacer
+
+  const checkRow=div({
+    display:"flex",gap:"12px",alignItems:"flex-start",
+    padding:"14px",background:C.card,borderRadius:"12px",
+    border:`1px solid ${C.border}`,cursor:"pointer",marginBottom:"16px"
+  });
+
+  // Checkbox custom (évite les bugs de re-render)
+  const checkBox=div({
+    width:"20px",height:"20px",borderRadius:"5px",flexShrink:0,marginTop:"2px",
+    border:`2px solid ${state.pubData._transfert?C.orange:C.muted}`,
+    background:state.pubData._transfert?C.orange:"transparent",
+    display:"flex",alignItems:"center",justifyContent:"center",
+    fontSize:"13px",color:"#fff",transition:"all 0.15s"
+  },[state.pubData._transfert?"✓":""]);
+
+  const checkTxt=div({flex:1});
+  checkTxt.appendChild(txt("p","Transfert officiel uniquement",{fontSize:"12px",fontWeight:"700",color:"#fff",marginBottom:"3px"}));
+  checkTxt.appendChild(txt("p","Je m'engage à effectuer le transfert du dossard uniquement via les canaux officiels de l'organisation.",{fontSize:"10px",color:C.muted,lineHeight:"1.5"}));
+
+  checkRow.appendChild(checkBox);
+  checkRow.appendChild(checkTxt);
+
+  // Toggle direct sans re-render
+  checkRow.onclick=()=>{
+    state.pubData._transfert=!state.pubData._transfert;
+    checkBox.style.background=state.pubData._transfert?C.orange:"transparent";
+    checkBox.style.borderColor=state.pubData._transfert?C.orange:C.muted;
+    checkBox.textContent=state.pubData._transfert?"✓":"";
+  };
+  view.appendChild(checkRow);
+
+  // Bouton → étape 3 récapitulatif
+  const nextBtn=el("button",{style:css({background:C.orange,border:"none",borderRadius:"12px",padding:"14px",fontWeight:"700",color:"#fff",width:"100%",cursor:"pointer",fontSize:"13px",marginBottom:"24px"})});
+  nextBtn.textContent="Voir le récapitulatif →";
+  nextBtn.onclick=()=>{
+    if(!state.pubData._transfert){alert("Vous devez accepter le transfert officiel pour continuer.");return;}
+    state.pubStep=3;render();
+  };
+  view.appendChild(nextBtn);
+  return view;
+}
+
+function publishStep3(){
+  const d=state.pubData;
+
+  // PDF plein écran
+  if(state.pdfFullscreen){
+    return pdfFullscreenView(state.pdfFullscreen,()=>{state.pdfFullscreen=null;render();});
+  }
+
+  // Visionneuse plein écran recap (uniquement images)
+  if(state.pubRecapViewer!=null){
+    const photos=onlyImages(d._photos);
+    return photoViewer(photos, state.pubRecapViewer, ()=>{state.pubRecapViewer=null;render();});
+  }
+  const view=div({flex:1,overflowY:"auto",padding:"20px 24px",display:"flex",flexDirection:"column"});
+
+  // Header
+  const topBar=div({display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"6px"});
+  const backBtn=div({cursor:"pointer",fontSize:"18px",color:C.muted},[txt("span","←")]);
+  backBtn.onclick=()=>{state.pubStep=2;render();};
+  topBar.appendChild(backBtn);
+  topBar.appendChild(txt("h3","Publier une annonce",{fontSize:"13px",fontWeight:"700"}));
+  topBar.appendChild(div({width:"18px"}));
+  view.appendChild(topBar);
+
+  // Barre progression complète
+  const stepsBar=div({display:"flex",gap:"6px",marginBottom:"20px",marginTop:"6px"});
+  [1,2,3,4].forEach(i=>stepsBar.appendChild(div({flex:1,height:"3px",borderRadius:"4px",background:i<=3?C.orange:C.border})));
+  view.appendChild(stepsBar);
+
+  view.appendChild(txt("h2","Récapitulatif",{fontSize:"18px",fontWeight:"800",marginBottom:"6px"}));
+  view.appendChild(txt("p","Vérifiez les informations avant de publier.",{fontSize:"12px",color:C.muted,marginBottom:"18px"}));
+
+  // ── Carrousel récap : images + PDF mélangés
+  const recapItems=carouselItems(d._photos,null);
+  if(recapItems.length>0){
+   try{
+    let rCur=0;
+    // Index images uniquement, pour la visionneuse plein écran
+    let rImgIndexMap=[];
+    recapItems.forEach((it,i)=>{if(it.type==="image")rImgIndexMap.push(i);});
+
+    const rCarousel=div({position:"relative",width:"100%",height:"260px",minHeight:"260px",flexShrink:"0",overflow:"hidden",background:"#000",borderRadius:"14px",marginBottom:"16px"});
+
+    const rTrack=div({display:"flex",height:"100%",width:`${recapItems.length*100}%`,transition:"transform 0.3s ease"});
+    recapItems.forEach(item=>{
+      const slide=div({flexShrink:0,width:`${100/recapItems.length}%`,height:"100%",overflow:"hidden",cursor:"pointer",position:"relative"});
+      if(item.type==="image"){
+        slide.appendChild(el("img",{src:item.src,style:css({width:"100%",height:"100%",objectFit:"cover",display:"block"})}));
+        slide.onclick=()=>{
+          const idx=rImgIndexMap.indexOf(recapItems.indexOf(item));
+          state.pubRecapViewer=idx>=0?idx:0;
+          render();
+        };
+      }else{
+        if(item.pageImage){
+          slide.appendChild(el("img",{src:item.pageImage,style:css({width:"100%",height:"100%",objectFit:"cover",display:"block"})}));
+        }else{
+          slide.style.background=C.alt;
+          slide.style.display="flex";
+          slide.style.flexDirection="column";
+          slide.style.alignItems="center";
+          slide.style.justifyContent="center";
+          slide.style.gap="8px";
+          slide.appendChild(txt("span","📄",{fontSize:"40px"}));
+          slide.appendChild(txt("p","Aperçu indisponible",{fontSize:"11px",color:C.muted}));
+        }
+        slide.onclick=()=>{state.pdfFullscreen=item;render();};
+      }
+      rTrack.appendChild(slide);
+    });
+    rCarousel.appendChild(rTrack);
+
+    // Compteur
+    const rCounter=div({position:"absolute",top:"10px",left:"10px",background:"rgba(0,0,0,0.6)",borderRadius:"20px",padding:"3px 10px",zIndex:10});
+    const rCounterTxt=txt("span",`1 / ${recapItems.length}`,{fontSize:"11px",fontWeight:"600"});
+    rCounter.appendChild(rCounterTxt);
+    rCarousel.appendChild(rCounter);
+
+    // Icône agrandir / ouvrir
+    const rExpand=div({position:"absolute",top:"10px",right:"10px",width:"30px",height:"30px",background:"rgba(0,0,0,0.6)",borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",zIndex:10,fontSize:"13px",cursor:"pointer"});
+    rCarousel.appendChild(rExpand);
+
+    // Hint tap
+    const rHint=div({position:"absolute",bottom:"30px",left:0,right:0,textAlign:"center",zIndex:10});
+    const rHintTxt=txt("span","Appuyer pour agrandir",{fontSize:"10px",color:"rgba(255,255,255,0.5)"});
+    rHint.appendChild(rHintTxt);
+    rCarousel.appendChild(rHint);
+
+    // Dots
+    const rDotsWrap=div({position:"absolute",bottom:"8px",left:0,right:0,display:"flex",justifyContent:"center",gap:"5px",zIndex:10});
+    rCarousel.appendChild(rDotsWrap);
+
+    function rUpdateUI(){
+      rCounterTxt.textContent=`${rCur+1} / ${recapItems.length}`;
+      const cur=recapItems[rCur];
+      rExpand.textContent="⛶";
+      rHintTxt.textContent=cur.type==="pdf"?"Appuyer pour agrandir le PDF":"Appuyer pour agrandir";
+      rDotsWrap.innerHTML="";
+      recapItems.forEach((item,j)=>{
+        const isPdf=item.type==="pdf";
+        const dot=div({
+          width:j===rCur?"16px":"6px",height:"6px",borderRadius:"4px",
+          background:j===rCur?C.orange:(isPdf?"rgba(255,180,80,0.5)":"rgba(255,255,255,0.4)"),
+          transition:"all 0.2s",cursor:"pointer"
+        });
+        dot.onclick=e=>{e.stopPropagation();rGoTo(j);};
+        rDotsWrap.appendChild(dot);
+      });
+    }
+
+    function rGoTo(i){
+      rCur=Math.max(0,Math.min(recapItems.length-1,i));
+      rTrack.style.transform=`translateX(-${rCur*(100/recapItems.length)}%)`;
+      rUpdateUI();
+    }
+    rUpdateUI();
+
+    // Action principale : agrandir image OU PDF en plein écran
+    function rActivate(){
+      const cur=recapItems[rCur];
+      if(cur.type==="pdf"){
+        state.pdfFullscreen=cur;
+        render();
+      }else{
+        const idx=rImgIndexMap.indexOf(rCur);
+        state.pubRecapViewer=idx>=0?idx:0;
+        render();
+      }
+    }
+    rExpand.onclick=e=>{e.stopPropagation();rActivate();};
+
+    if(recapItems.length>1){
+      const aStyle={position:"absolute",top:"50%",transform:"translateY(-50%)",width:"32px",height:"32px",background:"rgba(0,0,0,0.5)",borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",zIndex:10,fontSize:"18px"};
+      const rPrev=div({...aStyle,left:"8px"},["‹"]);
+      rPrev.onclick=e=>{e.stopPropagation();rGoTo(rCur-1);};
+      const rNext=div({...aStyle,right:"8px"},["›"]);
+      rNext.onclick=e=>{e.stopPropagation();rGoTo(rCur+1);};
+      rCarousel.appendChild(rPrev);
+      rCarousel.appendChild(rNext);
+
+      let rtx=0;
+      rCarousel.addEventListener("touchstart",e=>rtx=e.touches[0].clientX,{passive:true});
+      rCarousel.addEventListener("touchend",e=>{
+        const dx=e.changedTouches[0].clientX-rtx;
+        if(Math.abs(dx)>40){dx<0?rGoTo(rCur+1):rGoTo(rCur-1);e.preventDefault();}
+      },{passive:true});
+    }
+
+    view.appendChild(rCarousel);
+    view.appendChild(txt("p",`${recapItems.length} document(s) ajouté(s)`,{fontSize:"10px",color:C.muted,marginTop:"-10px",marginBottom:"14px",textAlign:"center"}));
+   }catch(err){
+     view.appendChild(txt("p","⚠️ Erreur d'affichage des photos : "+err.message,{fontSize:"11px",color:"#e53e3e",marginBottom:"14px",fontWeight:"600"}));
+   }
+  } else {
+    view.appendChild(txt("p","⚠️ Aucune photo ni preuve d'achat ajoutée",{fontSize:"11px",color:"#e53e3e",marginBottom:"14px",fontWeight:"600"}));
+  }
+
+  // Bloc infos
+  const infoCard=div({background:C.card,borderRadius:"14px",border:`1px solid ${C.border}`,padding:"16px",marginBottom:"14px",display:"flex",flexDirection:"column",gap:"10px"});
+
+  function row(label,val){
+    const r=div({display:"flex",justifyContent:"space-between",alignItems:"center"});
+    r.appendChild(txt("span",label,{fontSize:"11px",color:C.muted,fontWeight:"600"}));
+    r.appendChild(txt("span",val||"–",{fontSize:"12px",fontWeight:"700",color:"#fff",textAlign:"right",maxWidth:"60%"}));
+    return r;
+  }
+
+  infoCard.appendChild(row("Type",d.type));
+  infoCard.appendChild(row("Course",d.course));
+  const dateStr=d.date?new Date(d.date).toLocaleDateString("fr-FR",{day:"numeric",month:"long",year:"numeric"}):"–";
+  infoCard.appendChild(row("Date",dateStr));
+  infoCard.appendChild(row("Distance",d.dist));
+  if(["Trail","Ultra","Montagne"].includes(d.type)) infoCard.appendChild(row("Dénivelé",d.deniv));
+  infoCard.appendChild(row("Prix",`${d.prix} €`));
+  view.appendChild(infoCard);
+
+  // Description
+  if(d.desc){
+    const descCard=div({background:C.card,borderRadius:"14px",border:`1px solid ${C.border}`,padding:"14px",marginBottom:"14px"});
+    descCard.appendChild(txt("p","Description",{fontSize:"11px",color:C.muted,fontWeight:"600",marginBottom:"6px"}));
+    descCard.appendChild(txt("p",d.desc,{fontSize:"12px",color:"#fff",lineHeight:"1.6"}));
+    view.appendChild(descCard);
+  }
+
+  // Badge transfert officiel
+  const transfertBadge=div({
+    display:"flex",gap:"10px",alignItems:"center",
+    background:"rgba(16,185,129,0.1)",border:`1px solid ${C.green}`,
+    borderRadius:"10px",padding:"10px 14px",marginBottom:"20px"
+  });
+  transfertBadge.appendChild(txt("span","✅",{fontSize:"16px"}));
+  transfertBadge.appendChild(txt("span","Transfert officiel accepté",{fontSize:"12px",fontWeight:"600",color:C.green}));
+  view.appendChild(transfertBadge);
+
+  // Bouton → étape 4 Conditions de vente
+  const pubBtn=el("button",{style:css({background:C.orange,border:"none",borderRadius:"12px",padding:"16px",fontWeight:"800",color:"#fff",width:"100%",cursor:"pointer",fontSize:"14px",marginBottom:"24px",boxShadow:"0 4px 15px rgba(255,85,0,0.3)"})});
+  pubBtn.textContent="Lire les conditions de vente →";
+  pubBtn.onclick=()=>{state.pubStep=4;render();};
+  view.appendChild(pubBtn);
+  return view;
+}
+
+// ── ÉTAPE 4 DOSSARD : CONDITIONS DE VENTE ────────────────────────────────────
+function publishStep4(){
+  const d=state.pubData;
+  const view=div({flex:1,overflowY:"auto",padding:"20px 24px",display:"flex",flexDirection:"column"});
+
+  // Header
+  const topBar=div({display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"6px"});
+  const backBtn=div({cursor:"pointer",fontSize:"18px",color:C.muted},[txt("span","←")]);
+  backBtn.onclick=()=>{state.pubStep=3;render();};
+  topBar.appendChild(backBtn);
+  topBar.appendChild(txt("h3","Publier une annonce",{fontSize:"13px",fontWeight:"700"}));
+  topBar.appendChild(div({width:"18px"}));
+  view.appendChild(topBar);
+
+  // Barre progression 4 étapes complètes
+  const stepsBar=div({display:"flex",gap:"6px",marginBottom:"20px",marginTop:"6px"});
+  [1,2,3,4].forEach(()=>stepsBar.appendChild(div({flex:1,height:"3px",borderRadius:"4px",background:C.orange})));
+  view.appendChild(stepsBar);
+
+  view.appendChild(txt("h2","Conditions de vente",{fontSize:"18px",fontWeight:"800",marginBottom:"4px"}));
+  view.appendChild(txt("p","Lisez et acceptez les conditions avant de publier votre annonce.",{fontSize:"12px",color:C.muted,marginBottom:"18px"}));
+
+  // Blocs de conditions
+  function conditionCard(emoji,titre,texte){
+    const card=div({background:C.card,border:`1px solid ${C.border}`,borderRadius:"14px",padding:"14px 16px",marginBottom:"10px"});
+    const head=div({display:"flex",gap:"10px",alignItems:"center",marginBottom:"8px"});
+    head.appendChild(txt("span",emoji,{fontSize:"20px"}));
+    head.appendChild(txt("p",titre,{fontSize:"13px",fontWeight:"700",color:"#fff"}));
+    card.appendChild(head);
+    card.appendChild(txt("p",texte,{fontSize:"11px",color:C.muted,lineHeight:"1.6"}));
+    return card;
+  }
+
+  view.appendChild(conditionCard("🏃","Dossard nominatif",
+    "Le dossard vendu doit correspondre à votre inscription officielle. Le vendeur s'engage à fournir une preuve d'achat valide et à effectuer le transfert uniquement via les canaux officiels de l'organisateur."));
+
+  view.appendChild(conditionCard("🔒","Transfert officiel obligatoire",
+    "Le transfert du dossard doit être réalisé exclusivement par le biais du système de transfert officiel mis en place par l'organisation de la course. Tout transfert non officiel est interdit et engage la seule responsabilité du vendeur."));
+
+  view.appendChild(conditionCard("💰","Prix & commission Traivo",
+    "Le prix affiché est le prix de vente final. Traivo prélève une commission de 5% sur chaque vente sécurisée via la plateforme. Le vendeur recevra le montant net après déduction de la commission."));
+
+  view.appendChild(conditionCard("❌","Annulation & remboursement",
+    "En cas d'impossibilité de transfert (course annulée, délai dépassé, transfert refusé par l'organisation), le vendeur s'engage à rembourser intégralement l'acheteur. Traivo Protect garantit le remboursement en cas de litige."));
+
+  view.appendChild(conditionCard("⚖️","Responsabilité",
+    "Traivo agit en tant qu'intermédiaire. La véracité des informations (course, date, distance, dossard) relève de la seule responsabilité du vendeur. Toute fausse déclaration entraînera la suppression de l'annonce et du compte."));
+
+  view.appendChild(conditionCard("📋","Données personnelles",
+    "En publiant une annonce, vous acceptez que vos informations (nom, ville) soient visibles des acheteurs potentiels. Consultez notre politique de confidentialité pour en savoir plus."));
+
+  view.appendChild(div({height:"10px"}));
+
+  // Case acceptation
+  const checkRow=div({
+    display:"flex",gap:"12px",alignItems:"flex-start",
+    padding:"14px",background:C.card,borderRadius:"12px",
+    border:`1px solid ${C.border}`,cursor:"pointer",marginBottom:"20px"
+  });
+  const checkBox=div({
+    width:"20px",height:"20px",borderRadius:"5px",flexShrink:0,marginTop:"2px",
+    border:`2px solid ${state.pubData._condAccepted?C.orange:C.muted}`,
+    background:state.pubData._condAccepted?C.orange:"transparent",
+    display:"flex",alignItems:"center",justifyContent:"center",
+    fontSize:"13px",color:"#fff"
+  },[state.pubData._condAccepted?"✓":""]);
+  const checkTxt=div({flex:1});
+  checkTxt.appendChild(txt("p","J'accepte les conditions de vente Traivo",{fontSize:"12px",fontWeight:"700",color:"#fff",marginBottom:"3px"}));
+  checkTxt.appendChild(txt("p","Je confirme avoir lu et accepté l'ensemble des conditions ci-dessus.",{fontSize:"10px",color:C.muted,lineHeight:"1.5"}));
+  checkRow.appendChild(checkBox);
+  checkRow.appendChild(checkTxt);
+  checkRow.onclick=()=>{
+    state.pubData._condAccepted=!state.pubData._condAccepted;
+    checkBox.style.background=state.pubData._condAccepted?C.orange:"transparent";
+    checkBox.style.borderColor=state.pubData._condAccepted?C.orange:C.muted;
+    checkBox.textContent=state.pubData._condAccepted?"✓":"";
+  };
+  view.appendChild(checkRow);
+
+  // Bouton final publier
+  const pubBtn=el("button",{style:css({background:C.orange,border:"none",borderRadius:"12px",padding:"16px",fontWeight:"800",color:"#fff",width:"100%",cursor:"pointer",fontSize:"14px",marginBottom:"24px",boxShadow:"0 4px 15px rgba(255,85,0,0.3)"})});
+  pubBtn.textContent="🚀 Mettre en ligne";
+  pubBtn.onclick=async()=>{
+    if(!state.pubData._condAccepted){alert("Vous devez accepter les conditions de vente pour publier.");return;}
+    pubBtn.disabled=true;pubBtn.textContent="Publication...";
+    const dateStr=d.date?new Date(d.date).toLocaleDateString("fr-FR",{day:"numeric",month:"short",year:"numeric"}):"Bientôt";
+    const nouvelleAnnonce={
+      id:DOSSARDS.length+1,
+      titre:d.course||"Nouveau dossard",
+      lieu:state.user.ville||"France",date:dateStr,
+      prix:d.prix||0,
+      type:d.type||"Trail",
+      dist:d.dist||"–",
+      deniv:d.deniv||"–",
+      img:(()=>{const imgs=onlyImages(d._photos);return imgs.length>0?imgs[0]:IMGS.utmb;})(),
+      _photos:d._photos&&d._photos.length>0?[...d._photos]:[],
+      vendeur:state.user.nom||"Moi",
+      lieu2:state.user.adresse||"",
+      desc:d.desc||"",
+      places:1,note:"Nouveau"
+    };
+    DOSSARDS.unshift(nouvelleAnnonce);
+    await saveAnnonce(nouvelleAnnonce);
+    state.pubStep=1;
+    state.pubData={_init:false};
+    alert("✅ Annonce publiée avec succès !");
+    go("home");
+  };
+  view.appendChild(pubBtn);
+  return view;
+}
+
+// ── FLUX MATÉRIEL : Vendre du matériel de course ───────────────────
+function publishMaterialScreen(){
+  if(!state.matData||!state.matData._init) state.matData={category:"Chaussures",titre:"",etat:"Neuf",prix:"",desc:"",_photos:[],_init:true};
+  if(!state.matStep) state.matStep=1;
+
+  // PDF plein écran (partagé)
+  if(state.pdfFullscreen){
+    return pdfFullscreenView(state.pdfFullscreen,()=>{state.pdfFullscreen=null;render();});
+  }
+  // Visionneuse plein écran images (partagée)
+  if(state.matRecapViewer!=null){
+    const photos=onlyImages(state.matData._photos);
+    return photoViewer(photos,state.matRecapViewer,()=>{state.matRecapViewer=null;render();});
+  }
+
+  if(state.matStep===1) return materialStep1();
+  if(state.matStep===2) return materialStepShipping();
+  return materialStep2();
+}
+
+function materialStep1(){
+  const m=state.matData;
+  const view=div({flex:1,overflowY:"auto",padding:"20px 24px",display:"flex",flexDirection:"column"});
+
+  // Header
+  const topBar=div({display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"6px"});
+  const backBtn=div({cursor:"pointer",fontSize:"18px",color:C.muted},[txt("span","←")]);
+  backBtn.onclick=()=>{state.pubMode=null;state.matData={_init:false};state.matStep=1;render();};
+  topBar.appendChild(backBtn);
+  topBar.appendChild(txt("h3","Vendre du matériel",{fontSize:"13px",fontWeight:"700"}));
+  topBar.appendChild(div({width:"18px"}));
+  view.appendChild(topBar);
+
+  // Barre progression 2 étapes
+  const stepsBar=div({display:"flex",gap:"6px",marginBottom:"10px",marginTop:"10px"});
+  [1,2,3].forEach(i=>stepsBar.appendChild(div({flex:1,height:"3px",borderRadius:"4px",background:i===1?C.orange:C.border})));
+  view.appendChild(stepsBar);
+
+  view.appendChild(txt("h2","Informations sur l'article",{fontSize:"18px",fontWeight:"800",marginTop:"14px",marginBottom:"18px"}));
+
+  // Helpers
+  function field(label,inputEl){
+    const wrap=div({marginBottom:"14px"});
+    wrap.appendChild(txt("span",label,{fontSize:"11px",fontWeight:"600",color:C.muted,display:"block",marginBottom:"6px"}));
+    wrap.appendChild(inputEl);
+    return wrap;
+  }
+  function inp(opts={}){
+    const {styleObj,...rest}=opts;
+    return el("input",{...rest,style:css({width:"100%",background:C.card,border:`1px solid ${C.border}`,borderRadius:"10px",padding:"11px 14px",outline:"none",fontSize:"13px",color:"#fff"})});
+  }
+  function selectField(options,val,onChange){
+    const s=el("select",{style:css({width:"100%",background:C.card,border:`1px solid ${C.border}`,borderRadius:"10px",padding:"11px 14px",outline:"none",fontSize:"13px",color:"#fff",appearance:"none"})});
+    options.forEach(o=>{
+      const opt=el("option",{value:o});
+      opt.textContent=o;
+      if(o===val) opt.selected=true;
+      s.appendChild(opt);
+    });
+    s.onchange=e=>onChange(e.target.value);
+    return s;
+  }
+
+  // Catégorie
+  const selCat=selectField(["Chaussures","Vêtements","Sacs & gilets","Bâtons","Montres GPS","Accessoires","Autre"],m.category,v=>{m.category=v;});
+  view.appendChild(field("Catégorie",selCat));
+
+  // Titre
+  const inpTitre=inp({placeholder:"ex: Salomon Speedcross 6 - Taille 42",value:m.titre});
+  inpTitre.oninput=e=>m.titre=e.target.value;
+  view.appendChild(field("Titre de l'annonce",inpTitre));
+
+  // État
+  const selEtat=selectField(["Neuf","Très bon état","Bon état","Correct"],m.etat,v=>{m.etat=v;});
+  view.appendChild(field("État",selEtat));
+
+  // Prix
+  const inpPrix=inp({type:"number",placeholder:"ex: 45",value:m.prix||""});
+  inpPrix.oninput=e=>m.prix=parseInt(e.target.value)||0;
+  view.appendChild(field("Prix (€)",inpPrix));
+
+  // ── Photos — conseil preuve d'achat
+  const pdfTipMat=div({background:"rgba(255,85,0,0.08)",border:`1px solid rgba(255,85,0,0.3)`,borderRadius:"10px",padding:"10px 14px",marginBottom:"12px",display:"flex",gap:"10px",alignItems:"flex-start"});
+  pdfTipMat.appendChild(txt("span","💡",{fontSize:"16px",flexShrink:"0"}));
+  const tipTxtMat=div({});
+  tipTxtMat.appendChild(txt("p","Facture ou ticket de caisse ?",{fontSize:"11px",fontWeight:"700",color:C.orange,marginBottom:"3px"}));
+  tipTxtMat.appendChild(txt("p","Faites une capture d'écran ou une photo de votre document, puis ajoutez-la ici. Elle s'affichera directement dans le carrousel.",{fontSize:"10px",color:C.muted,lineHeight:"1.5"}));
+  pdfTipMat.appendChild(tipTxtMat);
+  view.appendChild(pdfTipMat);
+
+  const fileInp=el("input",{type:"file",accept:"image/*",multiple:true,style:css({display:"none"})});
+  function handleMatFiles(files){
+    const arr=Array.from(files);
+    let loaded=0;
+    if(arr.length===0) return;
+    arr.forEach(f=>{
+      const r=new FileReader();
+      r.onload=ev=>{
+        m._photos.push(ev.target.result);
+        loaded++;
+        if(loaded===arr.length) render();
+      };
+      r.readAsDataURL(f);
+    });
+  }
+  fileInp.onchange=e=>handleMatFiles(e.target.files);
+  view.appendChild(fileInp);
+
+  view.appendChild(txt("span","Photos",{fontSize:"11px",fontWeight:"600",color:C.muted,display:"block",marginBottom:"6px"}));
+  const photoZone=div({background:C.card,border:`2px dashed ${C.border}`,borderRadius:"14px",padding:"22px 16px",textAlign:"center",marginBottom:"14px",cursor:"pointer",position:"relative"});
+
+  if(m._photos.length>0){
+    const previews=div({display:"flex",gap:"8px",flexWrap:"wrap",justifyContent:"center",marginBottom:"12px"});
+    m._photos.forEach((src,i)=>{
+      const wrap=div({position:"relative",flexShrink:0});
+      wrap.appendChild(el("img",{src,style:css({width:"76px",height:"76px",objectFit:"cover",borderRadius:"10px",display:"block"})}));
+      const del=div({position:"absolute",top:"-6px",right:"-6px",width:"20px",height:"20px",background:"#e53e3e",borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",fontSize:"11px",fontWeight:"700",color:"#fff",zIndex:5});
+      del.textContent="✕";
+      del.onclick=e=>{e.stopPropagation();m._photos.splice(i,1);render();};
+      wrap.appendChild(del);
+      previews.appendChild(wrap);
+    });
+    photoZone.appendChild(previews);
+  }
+  photoZone.appendChild(txt("p","📷",{fontSize:"26px",marginBottom:"4px"}));
+  photoZone.appendChild(txt("p",
+    m._photos.length>0?`${m._photos.length} photo(s) ajoutée(s) · Appuyer pour en ajouter`:"Appuyer pour ajouter des photos",
+    {fontSize:"12px",color:C.muted}
+  ));
+  photoZone.appendChild(txt("p","Photos de l'article + captures d'écran de votre facture",{fontSize:"10px",color:C.border,marginTop:"4px"}));
+  photoZone.onclick=()=>fileInp.click();
+  view.appendChild(photoZone);
+
+  // Description
+  view.appendChild(txt("span","Description",{fontSize:"11px",fontWeight:"600",color:C.muted,display:"block",marginBottom:"6px"}));
+  const textarea=el("textarea",{placeholder:"Décrivez l'article, sa taille, son état, les raisons de la vente...",style:css({width:"100%",background:C.card,border:`1px solid ${C.border}`,borderRadius:"10px",padding:"12px 14px",outline:"none",fontSize:"12px",color:"#fff",resize:"none",height:"100px",lineHeight:"1.6",marginBottom:"20px"})});
+  textarea.value=m.desc||"";
+  textarea.oninput=e=>m.desc=e.target.value;
+  view.appendChild(textarea);
+
+  // Bouton suivant → frais de port
+  const nextBtn=el("button",{style:css({background:C.orange,border:"none",borderRadius:"12px",padding:"14px",fontWeight:"700",color:"#fff",width:"100%",cursor:"pointer",fontSize:"13px",marginBottom:"24px"})});
+  nextBtn.textContent="Frais de port →";
+  nextBtn.onclick=()=>{
+    if(!m.titre||!m.prix){alert("Merci de remplir au moins le titre et le prix.");return;}
+    state.matStep=2;
+    render();
+  };
+  view.appendChild(nextBtn);
+
+  return view;
+}
+
+// ── ÉTAPE 2 MATÉRIEL : FRAIS DE PORT ─────────────────────────────────────────
+function materialStepShipping(){
+  const m=state.matData;
+  const view=div({flex:1,overflowY:"auto",padding:"20px 24px",display:"flex",flexDirection:"column"});
+
+  // Header
+  const topBar=div({display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"6px"});
+  const backBtn=div({cursor:"pointer",fontSize:"18px",color:C.muted},[txt("span","←")]);
+  backBtn.onclick=()=>{state.matStep=1;render();};
+  topBar.appendChild(backBtn);
+  topBar.appendChild(txt("h3","Vendre du matériel",{fontSize:"13px",fontWeight:"700"}));
+  topBar.appendChild(div({width:"18px"}));
+  view.appendChild(topBar);
+
+  // Barre progression
+  const stepsBar=div({display:"flex",gap:"6px",marginBottom:"20px",marginTop:"6px"});
+  [1,2,3].forEach(i=>stepsBar.appendChild(div({flex:1,height:"3px",borderRadius:"4px",background:i<=2?C.orange:C.border})));
+  view.appendChild(stepsBar);
+
+  view.appendChild(txt("h2","Frais de port",{fontSize:"18px",fontWeight:"800",marginBottom:"4px"}));
+  view.appendChild(txt("p","Choisissez votre mode d'expédition et le transporteur.",{fontSize:"12px",color:C.muted,marginBottom:"18px"}));
+
+  if(!m._shipping) m._shipping={mode:"mondial_relay",payer:"acheteur",tarif:""};
+
+  // ── Mode d'expédition
+  view.appendChild(txt("p","Mode d'expédition",{fontSize:"11px",fontWeight:"700",color:C.muted,marginBottom:"10px",textTransform:"uppercase",letterSpacing:"0.5px"}));
+
+  const modes=[
+    {id:"mondial_relay",label:"Mondial Relay",ico:"📦",desc:"Point relais · Tarif calculé par l'acheteur"},
+    {id:"colissimo",label:"Colissimo",ico:"📫",desc:"La Poste · Livraison à domicile"},
+    {id:"chronopost",label:"Chronopost",ico:"⚡",desc:"Express 24h · Livraison garantie"},
+    {id:"laposte_eco",label:"Colis économique",ico:"🐢",desc:"La Poste · J+3 / J+5"},
+    {id:"relais_colis",label:"Relais Colis",ico:"🏪",desc:"Point relais proche de chez vous"},
+    {id:"remise_main",label:"Remise en main propre",ico:"🤝",desc:"Rencontre physique · Gratuit"},
+  ];
+
+  modes.forEach(mo=>{
+    const selected=m._shipping.mode===mo.id;
+    const card=div({
+      background:selected?`rgba(255,85,0,0.12)`:C.card,
+      border:`1.5px solid ${selected?C.orange:C.border}`,
+      borderRadius:"12px",padding:"12px 14px",
+      marginBottom:"8px",display:"flex",gap:"12px",
+      alignItems:"center",cursor:"pointer"
+    });
+    card.onclick=()=>{m._shipping.mode=mo.id;render();};
+    card.appendChild(txt("span",mo.ico,{fontSize:"22px",flexShrink:"0"}));
+    const info=div({flex:1});
+    info.appendChild(txt("p",mo.label,{fontSize:"13px",fontWeight:"700",color:selected?"#fff":"#fff",marginBottom:"2px"}));
+    info.appendChild(txt("p",mo.desc,{fontSize:"10px",color:C.muted}));
+    card.appendChild(info);
+    const radio=div({
+      width:"18px",height:"18px",borderRadius:"50%",border:`2px solid ${selected?C.orange:C.muted}`,
+      background:selected?C.orange:"transparent",flexShrink:"0",
+      display:"flex",alignItems:"center",justifyContent:"center"
+    });
+    if(selected) radio.appendChild(div({width:"6px",height:"6px",borderRadius:"50%",background:"#fff"}));
+    card.appendChild(radio);
+    view.appendChild(card);
+  });
+
+  view.appendChild(div({height:"14px"}));
+
+  // ── Qui paie les frais de port ?
+  view.appendChild(txt("p","Frais de port à la charge de",{fontSize:"11px",fontWeight:"700",color:C.muted,marginBottom:"10px",textTransform:"uppercase",letterSpacing:"0.5px"}));
+  const payeurs=[
+    {id:"acheteur",label:"L'acheteur",desc:"Les frais s'ajoutent au prix"},
+    {id:"vendeur",label:"Moi (vendeur)",desc:"Frais inclus dans le prix affiché"},
+  ];
+  payeurs.forEach(p=>{
+    const selected=m._shipping.payer===p.id;
+    const card=div({
+      background:selected?`rgba(255,85,0,0.12)`:C.card,
+      border:`1.5px solid ${selected?C.orange:C.border}`,
+      borderRadius:"12px",padding:"12px 14px",
+      marginBottom:"8px",display:"flex",gap:"12px",
+      alignItems:"center",cursor:"pointer"
+    });
+    card.onclick=()=>{m._shipping.payer=p.id;render();};
+    const info=div({flex:1});
+    info.appendChild(txt("p",p.label,{fontSize:"13px",fontWeight:"700",color:"#fff",marginBottom:"2px"}));
+    info.appendChild(txt("p",p.desc,{fontSize:"10px",color:C.muted}));
+    card.appendChild(info);
+    const radio=div({
+      width:"18px",height:"18px",borderRadius:"50%",border:`2px solid ${selected?C.orange:C.muted}`,
+      background:selected?C.orange:"transparent",flexShrink:"0",
+      display:"flex",alignItems:"center",justifyContent:"center"
+    });
+    if(selected) radio.appendChild(div({width:"6px",height:"6px",borderRadius:"50%",background:"#fff"}));
+    card.appendChild(radio);
+    view.appendChild(card);
+  });
+
+  // ── Tarif estimé (optionnel, si pas remise en main propre)
+  if(m._shipping.mode!=="remise_main"){
+    view.appendChild(div({height:"14px"}));
+    view.appendChild(txt("p","Tarif estimé (optionnel)",{fontSize:"11px",fontWeight:"700",color:C.muted,marginBottom:"6px",textTransform:"uppercase",letterSpacing:"0.5px"}));
+    const inpTarif=el("input",{
+      type:"number",placeholder:"ex: 4.99",
+      value:m._shipping.tarif||"",
+      style:css({width:"100%",background:C.card,border:`1px solid ${C.border}`,borderRadius:"10px",padding:"11px 14px",outline:"none",fontSize:"13px",color:"#fff"})
+    });
+    inpTarif.oninput=e=>m._shipping.tarif=e.target.value;
+    view.appendChild(inpTarif);
+    view.appendChild(txt("p","Indiquez le montant en € pour informer l'acheteur.",{fontSize:"10px",color:C.muted,marginTop:"4px",marginBottom:"14px"}));
+  }
+
+  view.appendChild(div({height:"8px"}));
+
+  // Bouton → récap
+  const nextBtn=el("button",{style:css({background:C.orange,border:"none",borderRadius:"12px",padding:"14px",fontWeight:"700",color:"#fff",width:"100%",cursor:"pointer",fontSize:"13px",marginBottom:"24px"})});
+  nextBtn.textContent="Voir le récapitulatif →";
+  nextBtn.onclick=()=>{state.matStep=3;render();};
+  view.appendChild(nextBtn);
+
+  return view;
+}
+
+function materialStep2(){
+  const m=state.matData;
+  const view=div({flex:1,overflowY:"auto",padding:"20px 24px",display:"flex",flexDirection:"column"});
+
+  // Header
+  const topBar=div({display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"6px"});
+  const backBtn=div({cursor:"pointer",fontSize:"18px",color:C.muted},[txt("span","←")]);
+  backBtn.onclick=()=>{state.matStep=2;render();};
+  topBar.appendChild(backBtn);
+  topBar.appendChild(txt("h3","Vendre du matériel",{fontSize:"13px",fontWeight:"700"}));
+  topBar.appendChild(div({width:"18px"}));
+  view.appendChild(topBar);
+
+  // Barre progression complète
+  const stepsBar=div({display:"flex",gap:"6px",marginBottom:"20px",marginTop:"10px"});
+  [1,2,3].forEach(()=>stepsBar.appendChild(div({flex:1,height:"3px",borderRadius:"4px",background:C.orange})));
+  view.appendChild(stepsBar);
+
+  view.appendChild(txt("h2","Récapitulatif",{fontSize:"18px",fontWeight:"800",marginBottom:"6px"}));
+  view.appendChild(txt("p","Vérifiez les informations avant de publier.",{fontSize:"12px",color:C.muted,marginBottom:"18px"}));
+
+  // ── Carrousel récap : images + PDF mélangés (identique au flux dossard)
+  const recapItems=carouselItems(m._photos,null);
+  if(recapItems.length>0){
+   try{
+    let rCur=0;
+    let rImgIndexMap=[];
+    recapItems.forEach((it,i)=>{if(it.type==="image")rImgIndexMap.push(i);});
+
+    const rCarousel=div({position:"relative",width:"100%",height:"260px",minHeight:"260px",flexShrink:"0",overflow:"hidden",background:"#000",borderRadius:"14px",marginBottom:"16px"});
+
+    const rTrack=div({display:"flex",height:"100%",width:`${recapItems.length*100}%`,transition:"transform 0.3s ease"});
+    recapItems.forEach(item=>{
+      const slide=div({flexShrink:0,width:`${100/recapItems.length}%`,height:"100%",overflow:"hidden",cursor:"pointer",position:"relative"});
+      if(item.type==="image"){
+        slide.appendChild(el("img",{src:item.src,style:css({width:"100%",height:"100%",objectFit:"cover",display:"block"})}));
+        slide.onclick=()=>{
+          const idx=rImgIndexMap.indexOf(recapItems.indexOf(item));
+          state.matRecapViewer=idx>=0?idx:0;
+          render();
+        };
+      }else{
+        if(item.pageImage){
+          slide.appendChild(el("img",{src:item.pageImage,style:css({width:"100%",height:"100%",objectFit:"cover",display:"block"})}));
+        }else{
+          slide.style.background=C.alt;
+          slide.style.display="flex";
+          slide.style.flexDirection="column";
+          slide.style.alignItems="center";
+          slide.style.justifyContent="center";
+          slide.style.gap="8px";
+          slide.appendChild(txt("span","📄",{fontSize:"40px"}));
+          slide.appendChild(txt("p","Aperçu indisponible",{fontSize:"11px",color:C.muted}));
+        }
+        slide.onclick=()=>{state.pdfFullscreen=item;render();};
+      }
+      rTrack.appendChild(slide);
+    });
+    rCarousel.appendChild(rTrack);
+
+    // Compteur
+    const rCounter=div({position:"absolute",top:"10px",left:"10px",background:"rgba(0,0,0,0.6)",borderRadius:"20px",padding:"3px 10px",zIndex:10});
+    const rCounterTxt=txt("span",`1 / ${recapItems.length}`,{fontSize:"11px",fontWeight:"600"});
+    rCounter.appendChild(rCounterTxt);
+    rCarousel.appendChild(rCounter);
+
+    // Dots
+    const rDotsWrap=div({position:"absolute",bottom:"8px",left:0,right:0,display:"flex",justifyContent:"center",gap:"5px",zIndex:10});
+    rCarousel.appendChild(rDotsWrap);
+
+    function rUpdateUI(){
+      rCounterTxt.textContent=`${rCur+1} / ${recapItems.length}`;
+      rDotsWrap.innerHTML="";
+      recapItems.forEach((item,j)=>{
+        const isPdf=item.type==="pdf";
+        const dot=div({
+          width:j===rCur?"16px":"6px",height:"6px",borderRadius:"4px",
+          background:j===rCur?C.orange:(isPdf?"rgba(255,180,80,0.5)":"rgba(255,255,255,0.4)"),
+          transition:"all 0.2s",cursor:"pointer"
+        });
+        dot.onclick=e=>{e.stopPropagation();rGoTo(j);};
+        rDotsWrap.appendChild(dot);
+      });
+    }
+    function rGoTo(i){
+      rCur=Math.max(0,Math.min(recapItems.length-1,i));
+      rTrack.style.transform=`translateX(-${rCur*(100/recapItems.length)}%)`;
+      rUpdateUI();
+    }
+    rUpdateUI();
+
+    if(recapItems.length>1){
+      const aStyle={position:"absolute",top:"50%",transform:"translateY(-50%)",width:"32px",height:"32px",background:"rgba(0,0,0,0.5)",borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",zIndex:10,fontSize:"18px"};
+      const rPrev=div({...aStyle,left:"8px"},["‹"]);
+      rPrev.onclick=e=>{e.stopPropagation();rGoTo(rCur-1);};
+      const rNext=div({...aStyle,right:"8px"},["›"]);
+      rNext.onclick=e=>{e.stopPropagation();rGoTo(rCur+1);};
+      rCarousel.appendChild(rPrev);
+      rCarousel.appendChild(rNext);
+
+      let rtx=0;
+      rCarousel.addEventListener("touchstart",e=>rtx=e.touches[0].clientX,{passive:true});
+      rCarousel.addEventListener("touchend",e=>{
+        const dx=e.changedTouches[0].clientX-rtx;
+        if(Math.abs(dx)>40){dx<0?rGoTo(rCur+1):rGoTo(rCur-1);e.preventDefault();}
+      },{passive:true});
+    }
+
+    view.appendChild(rCarousel);
+    view.appendChild(txt("p",`${recapItems.length} document(s) ajouté(s)`,{fontSize:"10px",color:C.muted,marginTop:"-10px",marginBottom:"14px",textAlign:"center"}));
+   }catch(err){
+     view.appendChild(txt("p","⚠️ Erreur d'affichage des photos : "+err.message,{fontSize:"11px",color:"#e53e3e",marginBottom:"14px",fontWeight:"600"}));
+   }
+  } else {
+    view.appendChild(txt("p","⚠️ Aucune photo ajoutée",{fontSize:"11px",color:"#e53e3e",marginBottom:"14px",fontWeight:"600"}));
+  }
+
+  // Bloc infos
+  const infoCard=div({background:C.card,borderRadius:"14px",border:`1px solid ${C.border}`,padding:"16px",marginBottom:"14px",display:"flex",flexDirection:"column",gap:"10px"});
+  function row(label,val){
+    const r=div({display:"flex",justifyContent:"space-between",alignItems:"center"});
+    r.appendChild(txt("span",label,{fontSize:"11px",color:C.muted,fontWeight:"600"}));
+    r.appendChild(txt("span",val||"–",{fontSize:"12px",fontWeight:"700",color:"#fff",textAlign:"right",maxWidth:"60%"}));
+    return r;
+  }
+  infoCard.appendChild(row("Catégorie",m.category));
+  infoCard.appendChild(row("Titre",m.titre));
+  infoCard.appendChild(row("État",m.etat));
+  infoCard.appendChild(row("Prix",`${m.prix} €`));
+  if(m._shipping){
+    const shippingLabels={"mondial_relay":"Mondial Relay","colissimo":"Colissimo","chronopost":"Chronopost","laposte_eco":"Colis éco","relais_colis":"Relais Colis","remise_main":"Remise en main"};
+    const payerLabel={"acheteur":"À la charge de l'acheteur","vendeur":"Inclus dans le prix"}[m._shipping.payer]||"–";
+    infoCard.appendChild(row("Transporteur",shippingLabels[m._shipping.mode]||m._shipping.mode));
+    infoCard.appendChild(row("Frais de port",payerLabel));
+    if(m._shipping.tarif) infoCard.appendChild(row("Tarif estimé",`${m._shipping.tarif} €`));
+  }
+  view.appendChild(infoCard);
+
+  // Description
+  if(m.desc){
+    const descCard=div({background:C.card,borderRadius:"14px",border:`1px solid ${C.border}`,padding:"14px",marginBottom:"20px"});
+    descCard.appendChild(txt("p","Description",{fontSize:"11px",color:C.muted,fontWeight:"600",marginBottom:"6px"}));
+    descCard.appendChild(txt("p",m.desc,{fontSize:"12px",color:"#fff",lineHeight:"1.6"}));
+    view.appendChild(descCard);
+  }
+
+  // Bouton publier
+  const pubBtn=el("button",{style:css({background:C.orange,border:"none",borderRadius:"12px",padding:"16px",fontWeight:"800",color:"#fff",width:"100%",cursor:"pointer",fontSize:"14px",marginBottom:"24px",boxShadow:"0 4px 15px rgba(255,85,0,0.3)"})});
+  pubBtn.textContent="🚀 Mettre en ligne";
+  pubBtn.onclick=async()=>{
+    pubBtn.disabled=true;pubBtn.textContent="Publication...";
+    const nouvelleAnnonce={
+      id:DOSSARDS.length+1,
+      titre:m.titre,
+      lieu:state.user.ville||"France",date:"Annonce matériel",
+      prix:m.prix||0,
+      type:"Matériel",
+      category:m.category,
+      etat:m.etat,
+      dist:"–",deniv:"–",
+      img:(()=>{const imgs=onlyImages(m._photos);return imgs.length>0?imgs[0]:IMGS.utmb;})(),
+      _photos:m._photos&&m._photos.length>0?[...m._photos]:[],
+      vendeur:state.user.nom||"Moi",
+      desc:m.desc||"",
+      _shipping:m._shipping?Object.assign({},m._shipping):null,
+      places:1,note:"Nouveau"
+    };
+    DOSSARDS.unshift(nouvelleAnnonce);
+    await saveAnnonce(nouvelleAnnonce);
+    state.matData={_init:false};
+    state.matStep=1;
+    alert("✅ Annonce publiée avec succès !");
+    go("home");
+  };
+  view.appendChild(pubBtn);
+
+  return view;
+}
+
+
+function messagesScreen(){ return div({padding:"20px 24px"},[txt("h2","Messages",{fontSize:"22px",fontWeight:"800"})]); }
+function profilScreen(){
+  const u=state.user||{};
+  const view=div({flex:1,overflowY:"auto",padding:"20px 24px",paddingBottom:"30px"});
+
+  // Header
+  view.appendChild(txt("h2","Mon Profil",{fontSize:"22px",fontWeight:"800",marginBottom:"20px"}));
+
+  // Avatar + nom
+  const avatarRow=div({display:"flex",alignItems:"center",gap:"16px",marginBottom:"24px",padding:"16px",background:C.card,borderRadius:"16px",border:`1px solid ${C.border}`});
+  const avatar=div({width:"58px",height:"58px",borderRadius:"50%",background:C.orange,display:"flex",alignItems:"center",justifyContent:"center",fontSize:"24px",flexShrink:"0"});
+  avatar.textContent=u.nom?u.nom.charAt(0).toUpperCase():"👤";
+  avatarRow.appendChild(avatar);
+  const avatarInfo=div({flex:1});
+  avatarInfo.appendChild(txt("p",u.nom||"Mon compte",{fontSize:"16px",fontWeight:"800",color:"#fff"}));
+  avatarInfo.appendChild(txt("p",u.email||"Ajouter un email",{fontSize:"11px",color:C.muted,marginTop:"2px"}));
+  if(u.ville) avatarInfo.appendChild(txt("p","📍 "+u.ville,{fontSize:"11px",color:C.orange,marginTop:"2px",fontWeight:"600"}));
+  avatarRow.appendChild(avatarInfo);
+  view.appendChild(avatarRow);
+
+  // Formulaire profil
+  view.appendChild(txt("p","Informations personnelles",{fontSize:"12px",fontWeight:"700",color:C.muted,marginBottom:"12px",textTransform:"uppercase",letterSpacing:"0.5px"}));
+
+  function field(label,inputEl){
+    const wrap=div({marginBottom:"12px"});
+    wrap.appendChild(txt("span",label,{fontSize:"11px",fontWeight:"600",color:C.muted,display:"block",marginBottom:"5px"}));
+    wrap.appendChild(inputEl);
+    return wrap;
+  }
+  function inp(placeholder,value){
+    return el("input",{placeholder,value:value||"",style:css({width:"100%",background:C.card,border:`1px solid ${C.border}`,borderRadius:"10px",padding:"11px 14px",outline:"none",fontSize:"13px",color:"#fff"})});
+  }
+
+  const inpNom=inp("ex: Jules Martin",u.nom);
+  view.appendChild(field("Nom complet",inpNom));
+
+  const inpEmail=inp("ex: jules@traivo.com",u.email);
+  inpEmail.type="email";
+  view.appendChild(field("Email",inpEmail));
+
+  const inpVille=inp("ex: Chamonix",u.ville);
+  view.appendChild(field("Ville",inpVille));
+
+  const inpAdresse=inp("ex: 12 rue du Mont-Blanc",u.adresse);
+  view.appendChild(field("Adresse",inpAdresse));
+
+  const inpCp=inp("ex: 74400",u.cp);
+  inpCp.type="number";
+  view.appendChild(field("Code postal",inpCp));
+
+  const inpTel=inp("ex: 06 12 34 56 78",u.tel);
+  inpTel.type="tel";
+  view.appendChild(field("Téléphone",inpTel));
+
+  // Bouton sauvegarder
+  const saveBtn=el("button",{style:css({background:C.orange,border:"none",borderRadius:"12px",padding:"14px",fontWeight:"700",color:"#fff",width:"100%",cursor:"pointer",fontSize:"13px",marginTop:"8px",boxShadow:"0 4px 15px rgba(255,85,0,0.25)"})});
+  saveBtn.textContent="💾 Sauvegarder";
+  saveBtn.onclick=async()=>{
+    state.user=Object.assign({},state.user,{
+      nom:inpNom.value.trim()||state.user.nom,
+      email:inpEmail.value.trim()||state.user.email,
+      ville:inpVille.value.trim()||state.user.ville,
+      adresse:inpAdresse.value.trim(),
+      cp:inpCp.value.trim(),
+      tel:inpTel.value.trim()
+    });
+    // Sauvegarde en BDD Supabase
+    const sb=getSupabase();
+    if(sb&&state.user._supaId){
+      try{
+        await sb.from("profiles").upsert({
+          id:state.user._supaId,
+          nom:state.user.nom,
+          email:state.user.email,
+          ville:state.user.ville,
+          adresse:state.user.adresse,
+          cp:state.user.cp,
+          tel:state.user.tel
+        });
+      }catch(e){console.warn("Sauvegarde profil:",e);}
+    }
+    saveBtn.textContent="✅ Profil mis à jour !";
+    saveBtn.style.background="#10b981";
+    setTimeout(()=>{saveBtn.textContent="💾 Sauvegarder";saveBtn.style.background=C.orange;},2000);
+    render();
+  };
+  view.appendChild(saveBtn);
+
+  // Section mes annonces
+  const mesAnnonces=DOSSARDS.filter(d=>d.vendeur===state.user.nom);
+  if(mesAnnonces.length>0){
+    view.appendChild(txt("p","Mes annonces",{fontSize:"12px",fontWeight:"700",color:C.muted,marginTop:"28px",marginBottom:"12px",textTransform:"uppercase",letterSpacing:"0.5px"}));
+    mesAnnonces.forEach(d=>{
+      const card=div({background:C.card,border:`1px solid ${C.border}`,borderRadius:"14px",padding:"12px",display:"flex",gap:"12px",alignItems:"center",marginBottom:"10px",cursor:"pointer"});
+      card.onclick=()=>go("detail",{item:d});
+      card.appendChild(el("img",{src:d.img,style:css({width:"52px",height:"52px",borderRadius:"10px",objectFit:"cover",flexShrink:"0"})}));
+      const info=div({flex:1});
+      info.appendChild(txt("p",d.titre,{fontSize:"12px",fontWeight:"700",color:"#fff"}));
+      info.appendChild(txt("p",`${d.prix} €`,{fontSize:"13px",fontWeight:"900",color:C.orange,marginTop:"3px"}));
+      card.appendChild(info);
+      card.appendChild(txt("span","›",{fontSize:"20px",color:C.muted}));
+      view.appendChild(card);
+    });
+  }
+
+  // Déconnexion
+  const logoutBtn=el("button",{style:css({background:"transparent",border:`1px solid ${C.border}`,borderRadius:"12px",padding:"12px",fontWeight:"600",color:C.muted,width:"100%",cursor:"pointer",fontSize:"13px",marginTop:"16px"})});
+  logoutBtn.textContent="Se déconnecter";
+  logoutBtn.onclick=async()=>{
+    const sb=getSupabase();
+    if(sb) await sb.auth.signOut();
+    state.user={nom:"",email:"",ville:"",adresse:"",cp:"",tel:""};
+    go("auth");
+  };
+  view.appendChild(logoutBtn);
+
+  return view;
+}
+
+// ── BARRE DE NAVIGATION INFÉRIEURE AVEC TEXTE ──────────────────────────────
+function bottomTabs(){
+  const nav=div({height:"76px",background:"#0A0E12",borderTop:`1px solid ${C.border}`,display:"flex",justifyContent:"space-around",alignItems:"center",paddingBottom:"12px"});
+  const menu=[{id:"home",label:"Accueil",ico:"🏠"},{id:"search",label:"Rechercher",ico:"🔍"},{id:"publish",label:"Vendre",ico:"➕"},{id:"messages",label:"Messages",ico:"💬"},{id:"profil",label:"Profil",ico:"👤"}];
+  menu.forEach(m=>{
+    const act=state.screen===m.id;
+    const item=el("div",{style:css({display:"flex",flexDirection:"column",alignItems:"center",cursor:"pointer"})});
+    item.onclick=()=>{
+      if(m.id==="publish"){
+        // Réinitialise le choix pour repasser par l'écran de sélection Dossard/Matériel
+        state.pubMode=null;
+        state.matStep=1;
+      }
+      go(m.id);
+    };
+    item.appendChild(txt("span",m.ico,{fontSize:"20px",color:act?C.orange:"#fff",opacity:act?1:0.4}));
+    item.appendChild(txt("span",m.label,{fontSize:"10px",color:act?C.white:C.muted,marginTop:"4px",fontWeight:act?"600":"400"}));
+    nav.appendChild(item);
+  });
+  return nav;
+}
+
+// ── LANCEMENT DE L'APPLICATION ───────────────────────────────────────────────
+window.addEventListener('error',function(e){
+  // Supprime silencieusement toutes les erreurs de scripts externes (CDN bloqués)
+  if(!e.filename||e.filename===''||e.lineno===0){return true;}
+  if(e.filename&&(e.filename.includes('cdn.')||e.filename.includes('unpkg.')||e.filename.includes('jsdelivr.'))){return true;}
+  console.error('Erreur JS:',e.message,'at',e.filename,'line',e.lineno);
+},true); // true = capture phase, intercepte avant que l'erreur remonte
+
+window.onload=async()=>{
+  try {
+    render(); // L'app démarre IMMÉDIATEMENT — Supabase se connecte en arrière-plan
+
+    // Charge Supabase sans bloquer l'affichage
+    const sb=await loadSupabase();
+    if(sb){
+      const {data:{session}}=await sb.auth.getSession();
+      if(session){
+        await loadUserProfile(sb,session.user.id);
+        state.user.email=session.user.email;
+        state.screen="home";
+        render();
+      }
+      loadAnnonces();
+      sb.auth.onAuthStateChange((event,session)=>{
+        if(event==="SIGNED_OUT"){
+          state.user={nom:"",email:"",ville:"",adresse:"",cp:"",tel:""};
+          state.screen="landing";
+          render();
+        }
+      });
+    }else{
+      console.log("Mode hors-ligne : Supabase indisponible, données locales utilisées");
+    }
+  } catch(err) {
+    console.error("Erreur démarrage:",err);
+    render(); // Tente quand même d'afficher l'app
+  }
+};
+</script>
+</body>
+</html>
