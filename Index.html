@@ -317,48 +317,86 @@ function authScreen(){
     statusMsg.style.display="none";
 
     if(state.isLoginMode){
-      // ── CONNEXION
+      // ── CONNEXION — Supabase obligatoire, pas de fallback
       if(!sb){
-        // Fallback local si Supabase indisponible
-        state.user.email=email;
-        go("home"); return;
-      }
-      const {data,error}=await sb.auth.signInWithPassword({email,password});
-      if(error){
-        showStatus(error.message==="Invalid login credentials"?"Email ou mot de passe incorrect.":error.message);
+        showStatus("Connexion impossible. Vérifiez votre connexion internet.");
         submitBtn.disabled=false;
         submitBtn.textContent="Se connecter";
         return;
       }
-      // Charge le profil depuis la BDD
+      // Validation basique email
+      if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){
+        showStatus("Adresse email invalide.");
+        submitBtn.disabled=false;
+        submitBtn.textContent="Se connecter";
+        return;
+      }
+      if(password.length<6){
+        showStatus("Le mot de passe doit contenir au moins 6 caractères.");
+        submitBtn.disabled=false;
+        submitBtn.textContent="Se connecter";
+        return;
+      }
+      const {data,error}=await sb.auth.signInWithPassword({email,password});
+      if(error){
+        showStatus(
+          error.message.includes("Invalid login credentials")?"Email ou mot de passe incorrect.":
+          error.message.includes("Email not confirmed")?"Confirmez votre email avant de vous connecter.":
+          error.message
+        );
+        submitBtn.disabled=false;
+        submitBtn.textContent="Se connecter";
+        return;
+      }
       await loadUserProfile(sb,data.user.id);
       state.user.email=email;
       go("home");
+
     } else {
       // ── INSCRIPTION
       const nom=(inputNom?.value||"").trim();
       const ville=(inputVille?.value||"").trim();
+
       if(!nom){showStatus("Le nom est requis.");submitBtn.disabled=false;submitBtn.textContent="Créer mon compte de coureur";return;}
-      if(!sb){
-        state.user={...state.user,nom,ville,email};
-        go("home"); return;
+      if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){
+        showStatus("Adresse email invalide.");
+        submitBtn.disabled=false;submitBtn.textContent="Créer mon compte de coureur";return;
       }
-      const {data,error}=await sb.auth.signUp({email,password,options:{data:{nom,ville}}});
+      if(password.length<6){
+        showStatus("Le mot de passe doit contenir au moins 6 caractères.");
+        submitBtn.disabled=false;submitBtn.textContent="Créer mon compte de coureur";return;
+      }
+      if(!sb){
+        showStatus("Inscription impossible. Vérifiez votre connexion internet.");
+        submitBtn.disabled=false;submitBtn.textContent="Créer mon compte de coureur";return;
+      }
+      const {data,error}=await sb.auth.signUp({
+        email,password,
+        options:{
+          emailRedirectTo:"https://traivoapp.netlify.app",
+          data:{nom,ville}
+        }
+      });
       if(error){
-        showStatus(error.message==="User already registered"?"Un compte existe déjà avec cet email.":error.message);
+        showStatus(
+          error.message.includes("already registered")?"Un compte existe déjà avec cet email.":
+          error.message
+        );
         submitBtn.disabled=false;
         submitBtn.textContent="Créer mon compte de coureur";
         return;
       }
-      // Crée le profil en BDD
-      await sb.from("profiles").upsert({
-        id:data.user.id,
-        nom,ville,email,
-        created_at:new Date().toISOString()
-      });
-      state.user=Object.assign({},state.user,{nom,ville,email,_supaId:data.user.id});
-      showStatus("Compte créé ! Vérifiez votre email pour confirmer.",false);
-      setTimeout(()=>go("home"),2000);
+      // Sauvegarde profil en BDD
+      if(data.user){
+        await sb.from("profiles").upsert({id:data.user.id,nom,ville});
+        state.user=Object.assign({},state.user,{nom,ville,email,_supaId:data.user.id});
+      }
+      // Affiche le message de confirmation email — ne redirige PAS vers home
+      showStatus("✅ Compte créé ! Un email de confirmation a été envoyé à "+email+". Vérifiez votre boîte mail (et vos spams) puis connectez-vous.",false);
+      submitBtn.disabled=false;
+      submitBtn.textContent="Créer mon compte de coureur";
+      // Bascule vers l'écran de connexion après 3 secondes
+      setTimeout(()=>{state.isLoginMode=true;render();},3000);
     }
   };
 
@@ -444,7 +482,8 @@ function homeScreen(){
 
   // ── Header
   const head=div({padding:"20px 24px 10px",display:"flex",justifyContent:"space-between",alignItems:"center"});
-  head.appendChild(txt("h2","Bonjour Jules 👋",{fontSize:"20px",fontWeight:"800"}));
+  const prenom=(state.user.nom||"").split(" ")[0]||"Coureur";
+  head.appendChild(txt("h2",`Bonjour ${prenom} 👋`,{fontSize:"20px",fontWeight:"800"}));
   const bell=div({fontSize:"20px",cursor:"pointer"},["🔔"]);
   bell.onclick=()=>go("messages");
   head.appendChild(bell);
