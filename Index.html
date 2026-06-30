@@ -32,20 +32,24 @@ let supabase=null;
 let _supaLoadPromise=null;
 
 function loadSupabase(){
+  // Si une tentative précédente a réussi, retourne le client en cache
+  if(supabase) return Promise.resolve(supabase);
+  // Si un chargement est en cours, attend son résultat
   if(_supaLoadPromise) return _supaLoadPromise;
+
   _supaLoadPromise=new Promise((resolve)=>{
     try{
-      // Si déjà chargé
+      // Si la lib est déjà présente sur window (chargée par un appel précédent)
       if(window.supabase&&window.supabase.createClient){
-        try{supabase=window.supabase.createClient(SUPA_URL,SUPA_KEY);resolve(supabase);}
-        catch(e){resolve(null);}
+        try{
+          supabase=window.supabase.createClient(SUPA_URL,SUPA_KEY);
+          resolve(supabase);
+        }catch(e){console.warn("Erreur création client Supabase:",e);resolve(null);}
         return;
       }
-      // Ne pas injecter de script si on est dans un iframe sandboxé (artifact Claude)
-      // On le détecte via l'absence de vraie URL (blob: ou about:)
+
       const loc=window.location.href;
-      const isSandboxed=loc.startsWith('blob:')||loc.startsWith('about:')||loc===''||
-                         window.top!==window; // dans un iframe
+      const isSandboxed=loc.startsWith('blob:')||loc.startsWith('about:')||loc===''||window.top!==window;
       if(isSandboxed){
         console.log("Environnement sandboxé détecté — Supabase désactivé, mode hors-ligne");
         resolve(null);return;
@@ -58,14 +62,25 @@ function loadSupabase(){
         try{
           if(window.supabase&&window.supabase.createClient){
             supabase=window.supabase.createClient(SUPA_URL,SUPA_KEY);
+            console.log("Supabase chargé avec succès");
             resolve(supabase);
-          }else{resolve(null);}
-        }catch(e){resolve(null);}
+          }else{
+            console.warn("Supabase script chargé mais createClient introuvable");
+            resolve(null);
+          }
+        }catch(e){console.warn("Erreur init Supabase:",e);resolve(null);}
       };
-      s.onerror=()=>resolve(null);
+      s.onerror=()=>{console.warn("Échec chargement script Supabase (CDN inaccessible)");resolve(null);};
       document.head.appendChild(s);
-      setTimeout(()=>resolve(supabase||null),6000);
-    }catch(e){resolve(null);}
+      setTimeout(()=>{
+        if(!supabase) console.warn("Timeout chargement Supabase (6s)");
+        resolve(supabase||null);
+      },6000);
+    }catch(e){console.warn("Erreur loadSupabase:",e);resolve(null);}
+  }).then(result=>{
+    // Si l'échec n'est pas définitif (pas sandboxé), on autorise un nouvel essai au prochain appel
+    if(!result) _supaLoadPromise=null;
+    return result;
   });
   return _supaLoadPromise;
 }
@@ -306,15 +321,18 @@ function authScreen(){
   submitBtn.textContent=state.isLoginMode?"Se connecter":"Créer mon compte de coureur";
 
   submitBtn.onclick=async()=>{
-    const sb=getSupabase();
     const email=(inputEmail?.value||"").trim();
     const password=inputPassword?.value||"";
 
     if(!email||!password){showStatus("Email et mot de passe requis.");return;}
 
     submitBtn.disabled=true;
-    submitBtn.textContent="Chargement...";
+    submitBtn.textContent="Connexion en cours...";
     statusMsg.style.display="none";
+
+    // Attend que Supabase soit chargé (au lieu de lire la variable globale directement,
+    // ce qui pouvait être null si l'utilisateur cliquait avant la fin du chargement async)
+    const sb=await loadSupabase();
 
     if(state.isLoginMode){
       // ── CONNEXION — Supabase obligatoire, pas de fallback
