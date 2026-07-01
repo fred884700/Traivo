@@ -332,12 +332,18 @@ function authScreen(){
 
     // Attend que Supabase soit chargé (au lieu de lire la variable globale directement,
     // ce qui pouvait être null si l'utilisateur cliquait avant la fin du chargement async)
-    const sb=await loadSupabase();
+    let sb,loadDiag="";
+    try{
+      sb=await loadSupabase();
+      if(!sb) loadDiag=" (diag: top="+(window.top===window)+", url="+window.location.href.substring(0,30)+")";
+    }catch(err){
+      loadDiag=" (diag err: "+err.message+")";
+    }
 
     if(state.isLoginMode){
       // ── CONNEXION — Supabase obligatoire, pas de fallback
       if(!sb){
-        showStatus("Connexion impossible. Vérifiez votre connexion internet.");
+        showStatus("Connexion impossible."+loadDiag);
         submitBtn.disabled=false;
         submitBtn.textContent="Se connecter";
         return;
@@ -385,7 +391,7 @@ function authScreen(){
         submitBtn.disabled=false;submitBtn.textContent="Créer mon compte de coureur";return;
       }
       if(!sb){
-        showStatus("Inscription impossible. Vérifiez votre connexion internet.");
+        showStatus("Inscription impossible."+loadDiag);
         submitBtn.disabled=false;submitBtn.textContent="Créer mon compte de coureur";return;
       }
       const {data,error}=await sb.auth.signUp({
