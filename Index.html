@@ -353,7 +353,17 @@ function authScreen(){
     let sb,loadDiag="";
     try{
       sb=await loadSupabase();
-      if(!sb) loadDiag=" Réessayez dans quelques secondes, ou vérifiez que votre réseau n'utilise pas de VPN/filtre bloquant jsdelivr.net.";
+      if(!sb){
+        // Diagnostic précis : teste un fetch direct vers jsdelivr pour voir l'erreur réelle
+        let fetchDiag="inconnue";
+        try{
+          const testResp=await fetch("https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/package.json",{mode:"cors"});
+          fetchDiag="fetch OK (status "+testResp.status+") mais script non exécuté — possible CSP";
+        }catch(fetchErr){
+          fetchDiag="fetch échoué: "+fetchErr.message;
+        }
+        loadDiag=" Diagnostic: "+fetchDiag;
+      }
     }catch(err){
       loadDiag=" (erreur: "+err.message+")";
     }
