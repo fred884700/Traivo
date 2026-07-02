@@ -32,56 +32,74 @@ let supabase=null;
 let _supaLoadPromise=null;
 
 function loadSupabase(){
-  // Si une tentative précédente a réussi, retourne le client en cache
   if(supabase) return Promise.resolve(supabase);
-  // Si un chargement est en cours, attend son résultat
   if(_supaLoadPromise) return _supaLoadPromise;
 
-  _supaLoadPromise=new Promise((resolve)=>{
-    try{
-      // Si la lib est déjà présente sur window (chargée par un appel précédent)
-      if(window.supabase&&window.supabase.createClient){
-        try{
-          supabase=window.supabase.createClient(SUPA_URL,SUPA_KEY);
-          resolve(supabase);
-        }catch(e){console.warn("Erreur création client Supabase:",e);resolve(null);}
-        return;
-      }
+  const CDN_URLS=[
+    "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js",
+    "https://unpkg.com/@supabase/supabase-js@2/dist/umd/supabase.js",
+    "https://cdnjs.cloudflare.com/ajax/libs/supabase-js/2.39.0/supabase.min.js"
+  ];
 
+  function tryLoad(index){
+    return new Promise((resolve)=>{
+      if(index>=CDN_URLS.length){resolve(null);return;}
+      if(window.supabase&&window.supabase.createClient){resolve(window.supabase);return;}
+
+      const s=document.createElement("script");
+      s.src=CDN_URLS[index];
+      s.async=true;
+      let settled=false;
+      s.onload=()=>{
+        if(settled)return;settled=true;
+        if(window.supabase&&window.supabase.createClient){
+          console.log("Supabase chargé via CDN #"+index);
+          resolve(window.supabase);
+        }else{
+          tryLoad(index+1).then(resolve);
+        }
+      };
+      s.onerror=()=>{
+        if(settled)return;settled=true;
+        console.warn("CDN #"+index+" échoué:",CDN_URLS[index]);
+        tryLoad(index+1).then(resolve);
+      };
+      document.head.appendChild(s);
+      // Timeout individuel par CDN (3s) avant de passer au suivant
+      setTimeout(()=>{
+        if(settled)return;settled=true;
+        console.warn("CDN #"+index+" timeout");
+        tryLoad(index+1).then(resolve);
+      },3500);
+    });
+  }
+
+  _supaLoadPromise=(async()=>{
+    try{
       const loc=window.location.href;
       const isSandboxed=loc.startsWith('blob:')||loc.startsWith('about:')||loc===''||window.top!==window;
       if(isSandboxed){
         console.log("Environnement sandboxé détecté — Supabase désactivé, mode hors-ligne");
-        resolve(null);return;
+        return null;
       }
-
-      const s=document.createElement("script");
-      s.src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js";
-      s.async=true;
-      s.onload=()=>{
+      const lib=await tryLoad(0);
+      if(lib&&lib.createClient){
         try{
-          if(window.supabase&&window.supabase.createClient){
-            supabase=window.supabase.createClient(SUPA_URL,SUPA_KEY);
-            console.log("Supabase chargé avec succès");
-            resolve(supabase);
-          }else{
-            console.warn("Supabase script chargé mais createClient introuvable");
-            resolve(null);
-          }
-        }catch(e){console.warn("Erreur init Supabase:",e);resolve(null);}
-      };
-      s.onerror=()=>{console.warn("Échec chargement script Supabase (CDN inaccessible)");resolve(null);};
-      document.head.appendChild(s);
-      setTimeout(()=>{
-        if(!supabase) console.warn("Timeout chargement Supabase (6s)");
-        resolve(supabase||null);
-      },6000);
-    }catch(e){console.warn("Erreur loadSupabase:",e);resolve(null);}
-  }).then(result=>{
-    // Si l'échec n'est pas définitif (pas sandboxé), on autorise un nouvel essai au prochain appel
-    if(!result) _supaLoadPromise=null;
+          supabase=lib.createClient(SUPA_URL,SUPA_KEY);
+          return supabase;
+        }catch(e){console.warn("Erreur création client:",e);return null;}
+      }
+      console.warn("Tous les CDN Supabase ont échoué");
+      return null;
+    }catch(e){
+      console.warn("Erreur loadSupabase:",e);
+      return null;
+    }
+  })().then(result=>{
+    if(!result) _supaLoadPromise=null; // autorise un nouvel essai plus tard
     return result;
   });
+
   return _supaLoadPromise;
 }
 
@@ -335,9 +353,9 @@ function authScreen(){
     let sb,loadDiag="";
     try{
       sb=await loadSupabase();
-      if(!sb) loadDiag=" (diag: top="+(window.top===window)+", url="+window.location.href.substring(0,30)+")";
+      if(!sb) loadDiag=" Réessayez dans quelques secondes, ou vérifiez que votre réseau n'utilise pas de VPN/filtre bloquant jsdelivr.net.";
     }catch(err){
-      loadDiag=" (diag err: "+err.message+")";
+      loadDiag=" (erreur: "+err.message+")";
     }
 
     if(state.isLoginMode){
