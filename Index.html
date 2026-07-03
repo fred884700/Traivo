@@ -25,105 +25,183 @@ select option { background: #12161A; color: #fff; }
 // ── CONFIGURATION DESIGN SYSTÈME ──────────────────────────────────
 const C={bg:"#060A0F",card:"#12161A",alt:"#1A1F26",orange:"#FF5500",green:"#10B981",muted:"#7A8694",border:"#222933",white:"#FFFFFF"};
 
-// ── SUPABASE — chargement asynchrone non-bloquant ─────────────────────────
+// ── SUPABASE — client REST minimaliste en fetch() natif ────────────────────
+// Aucune dépendance CDN : contourne définitivement tout problème de CSP/réseau
+// en n'utilisant que fetch(), qui n'est jamais bloqué par script-src.
 const SUPA_URL="https://mekfxrfcihxgptpshwwf.supabase.co";
 const SUPA_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1la2Z4cmZjaWh4Z3B0cHNod3dmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODEyMjM2MTQsImV4cCI6MjA5Njc5OTYxNH0.zHEilOlTFBAGyE82Ara8RCipUii_5ovVgcuRmZO_qMI";
-let supabase=null;
-let _supaLoadPromise=null;
 
+const LS_SESSION_KEY="traivo_supa_session";
+
+function createMiniSupabaseClient(url,anonKey){
+  let currentSession=null;
+  try{
+    const stored=localStorage.getItem(LS_SESSION_KEY);
+    if(stored) currentSession=JSON.parse(stored);
+  }catch(e){}
+
+  const authListeners=[];
+
+  function persistSession(session){
+    currentSession=session;
+    try{
+      if(session) localStorage.setItem(LS_SESSION_KEY,JSON.stringify(session));
+      else localStorage.removeItem(LS_SESSION_KEY);
+    }catch(e){}
+  }
+
+  function notifyListeners(event,session){
+    authListeners.forEach(fn=>{try{fn(event,session);}catch(e){}});
+  }
+
+  async function authFetch(path,options={}){
+    const headers=Object.assign({
+      "Content-Type":"application/json",
+      "apikey":anonKey
+    },options.headers||{});
+    if(currentSession&&currentSession.access_token){
+      headers["Authorization"]="Bearer "+currentSession.access_token;
+    }else{
+      headers["Authorization"]="Bearer "+anonKey;
+    }
+    const resp=await fetch(url+path,Object.assign({},options,{headers}));
+    return resp;
+  }
+
+  return {
+    auth:{
+      async signUp({email,password,options}){
+        try{
+          const resp=await fetch(url+"/auth/v1/signup",{
+            method:"POST",
+            headers:{"Content-Type":"application/json","apikey":anonKey},
+            body:JSON.stringify({
+              email,password,
+              data:options?.data||{},
+              options:{email_redirect_to:options?.emailRedirectTo}
+            })
+          });
+          const data=await resp.json();
+          if(!resp.ok){
+            return {data:null,error:{message:data.msg||data.error_description||data.message||"Erreur d'inscription"}};
+          }
+          if(data.access_token){
+            persistSession(data);
+            notifyListeners("SIGNED_IN",data);
+          }
+          return {data:{user:data.user||data},error:null};
+        }catch(e){
+          return {data:null,error:{message:"Réseau indisponible : "+e.message}};
+        }
+      },
+      async signInWithPassword({email,password}){
+        try{
+          const resp=await fetch(url+"/auth/v1/token?grant_type=password",{
+            method:"POST",
+            headers:{"Content-Type":"application/json","apikey":anonKey},
+            body:JSON.stringify({email,password})
+          });
+          const data=await resp.json();
+          if(!resp.ok){
+            const msg=data.error_description||data.msg||data.message||"";
+            return {data:null,error:{message:
+              msg.includes("Invalid login credentials")?"Invalid login credentials":
+              msg.includes("Email not confirmed")?"Email not confirmed":msg||"Erreur de connexion"
+            }};
+          }
+          persistSession(data);
+          notifyListeners("SIGNED_IN",data);
+          return {data:{user:data.user,session:data},error:null};
+        }catch(e){
+          return {data:null,error:{message:"Réseau indisponible : "+e.message}};
+        }
+      },
+      async getSession(){
+        if(currentSession&&currentSession.access_token){
+          return {data:{session:{user:currentSession.user,access_token:currentSession.access_token}}};
+        }
+        return {data:{session:null}};
+      },
+      async signOut(){
+        persistSession(null);
+        notifyListeners("SIGNED_OUT",null);
+        return {error:null};
+      },
+      onAuthStateChange(callback){
+        authListeners.push(callback);
+        return {data:{subscription:{unsubscribe(){const i=authListeners.indexOf(callback);if(i>=0)authListeners.splice(i,1);}}}};
+      }
+    },
+    from(table){
+      return {
+        select(cols){
+          const qs="?select="+encodeURIComponent(cols||"*");
+          const builder={
+            _order:"",_limit:"",
+            order(col,opts){this._order="&order="+encodeURIComponent(col)+(opts&&opts.ascending===false?".desc":".asc");return this;},
+            limit(n){this._limit="&limit="+n;return this;},
+            then(resolve,reject){
+              authFetch("/rest/v1/"+table+qs+this._order+this._limit,{method:"GET"})
+                .then(async resp=>{
+                  const data=await resp.json();
+                  if(!resp.ok) resolve({data:null,error:{message:data.message||"Erreur"}});
+                  else resolve({data,error:null});
+                }).catch(e=>resolve({data:null,error:{message:e.message}}));
+            }
+          };
+          return builder;
+        },
+        insert(row){
+          return {
+            select(){
+              return {
+                single(){
+                  return authFetch("/rest/v1/"+table,{
+                    method:"POST",
+                    headers:{"Prefer":"return=representation"},
+                    body:JSON.stringify(row)
+                  }).then(async resp=>{
+                    const data=await resp.json();
+                    if(!resp.ok) return {data:null,error:{message:data.message||"Erreur d'insertion"}};
+                    return {data:Array.isArray(data)?data[0]:data,error:null};
+                  }).catch(e=>({data:null,error:{message:e.message}}));
+                }
+              };
+            },
+            then(resolve){
+              authFetch("/rest/v1/"+table,{method:"POST",body:JSON.stringify(row)})
+                .then(async resp=>{
+                  if(!resp.ok){const data=await resp.json().catch(()=>({}));resolve({data:null,error:{message:data.message||"Erreur"}});}
+                  else resolve({data:null,error:null});
+                }).catch(e=>resolve({data:null,error:{message:e.message}}));
+            }
+          };
+        },
+        upsert(row){
+          return authFetch("/rest/v1/"+table,{
+            method:"POST",
+            headers:{"Prefer":"resolution=merge-duplicates"},
+            body:JSON.stringify(row)
+          }).then(async resp=>{
+            if(!resp.ok){const data=await resp.json().catch(()=>({}));return {data:null,error:{message:data.message||"Erreur"}};}
+            return {data:null,error:null};
+          }).catch(e=>({data:null,error:{message:e.message}}));
+        }
+      };
+    }
+  };
+}
+
+let supabase=null;
 function loadSupabase(){
   if(supabase) return Promise.resolve(supabase);
-  if(_supaLoadPromise) return _supaLoadPromise;
-
-  const CDN_URLS=[
-    "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js",
-    "https://unpkg.com/@supabase/supabase-js@2/dist/umd/supabase.js",
-    "https://cdnjs.cloudflare.com/ajax/libs/supabase-js/2.39.0/supabase.min.js"
-  ];
-
-  // Charge le code via fetch() + exécution manuelle (contourne les CSP script-src
-  // qui bloquent les <script src=""> externes, puisque fetch+Function ne sont pas
-  // soumis à la même politique que l'injection de balises <script>)
-  async function tryLoadViaFetch(index){
-    if(index>=CDN_URLS.length) return null;
-    try{
-      const resp=await fetch(CDN_URLS[index],{mode:"cors"});
-      if(!resp.ok) return tryLoadViaFetch(index+1);
-      const code=await resp.text();
-      // Exécute le code dans le contexte global via une balise script avec contenu inline
-      // (les CSP autorisent généralement 'unsafe-inline' même quand les URLs externes sont bloquées,
-      // et notre _headers l'autorise explicitement)
-      const scriptEl=document.createElement("script");
-      scriptEl.textContent=code;
-      document.head.appendChild(scriptEl);
-      if(window.supabase&&window.supabase.createClient){
-        console.log("Supabase chargé via fetch+inline depuis CDN #"+index);
-        return window.supabase;
-      }
-      return tryLoadViaFetch(index+1);
-    }catch(e){
-      console.warn("Fetch CDN #"+index+" échoué:",e.message);
-      return tryLoadViaFetch(index+1);
-    }
+  try{
+    supabase=createMiniSupabaseClient(SUPA_URL,SUPA_KEY);
+    return Promise.resolve(supabase);
+  }catch(e){
+    console.warn("Erreur création client Supabase maison:",e);
+    return Promise.resolve(null);
   }
-
-  // Méthode classique en secours (au cas où fetch+inline échouerait aussi)
-  function tryLoadViaTag(index){
-    return new Promise((resolve)=>{
-      if(index>=CDN_URLS.length){resolve(null);return;}
-      if(window.supabase&&window.supabase.createClient){resolve(window.supabase);return;}
-      const s=document.createElement("script");
-      s.src=CDN_URLS[index];
-      s.async=true;
-      let settled=false;
-      s.onload=()=>{
-        if(settled)return;settled=true;
-        if(window.supabase&&window.supabase.createClient) resolve(window.supabase);
-        else tryLoadViaTag(index+1).then(resolve);
-      };
-      s.onerror=()=>{
-        if(settled)return;settled=true;
-        tryLoadViaTag(index+1).then(resolve);
-      };
-      document.head.appendChild(s);
-      setTimeout(()=>{
-        if(settled)return;settled=true;
-        tryLoadViaTag(index+1).then(resolve);
-      },3500);
-    });
-  }
-
-  _supaLoadPromise=(async()=>{
-    try{
-      const loc=window.location.href;
-      const isSandboxed=loc.startsWith('blob:')||loc.startsWith('about:')||loc===''||window.top!==window;
-      if(isSandboxed){
-        console.log("Environnement sandboxé détecté — Supabase désactivé, mode hors-ligne");
-        return null;
-      }
-      // Tentative 1 : fetch + exécution inline (contourne les CSP restrictives sur script-src externes)
-      let lib=await tryLoadViaFetch(0);
-      // Tentative 2 : balises <script src=""> classiques si la première méthode échoue totalement
-      if(!lib||!lib.createClient) lib=await tryLoadViaTag(0);
-
-      if(lib&&lib.createClient){
-        try{
-          supabase=lib.createClient(SUPA_URL,SUPA_KEY);
-          return supabase;
-        }catch(e){console.warn("Erreur création client:",e);return null;}
-      }
-      console.warn("Tous les CDN Supabase ont échoué (fetch et script tag)");
-      return null;
-    }catch(e){
-      console.warn("Erreur loadSupabase:",e);
-      return null;
-    }
-  })().then(result=>{
-    if(!result) _supaLoadPromise=null; // autorise un nouvel essai plus tard
-    return result;
-  });
-
-  return _supaLoadPromise;
 }
 
 function getSupabase(){return supabase;}
